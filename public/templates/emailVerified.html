@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Verification - XS Card</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            max-width: 500px;
+            width: 90%;
+            text-align: center;
+        }
+        .logo {
+            width: 120px;
+            margin-bottom: 30px;
+        }
+        h1 {
+            color: #1E1B4B;
+            font-size: 28px;
+            margin-bottom: 20px;
+        }
+        p {
+            color: #555;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 30px;
+        }
+        .success-icon {
+            width: 80px;
+            height: 80px;
+            background-color: #4CAF50;
+            color: white;
+            border-radius: 50%;
+            font-size: 50px;
+            line-height: 80px;
+            margin: 0 auto 30px;
+        }
+        .error-icon {
+            width: 80px;
+            height: 80px;
+            background-color: #F44336;
+            color: white;
+            border-radius: 50%;
+            font-size: 50px;
+            line-height: 80px;
+            margin: 0 auto 30px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #1E1B4B;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: 600;
+            margin-top: 20px;
+            transition: background-color 0.3s;
+        }
+        .button:hover {
+            background-color: #FF69B4;
+        }
+        .footer {
+            margin-top: 40px;
+            font-size: 14px;
+            color: #777;
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="verification-container">
+        <!-- Content will be replaced dynamically -->
+    </div>
+
+    <script>
+        // Templates for different states
+        const templates = {
+            success: `
+                <div class="success-icon">✓</div>
+                <h1>Email Verified Successfully!</h1>
+                <p>Your email has been successfully verified. You can now sign in to your XS Card account and access all features.</p>
+                <a href="/signin" class="button">Sign In</a>
+                <div class="footer">
+                    <p>Thank you for choosing XS Card</p>
+                </div>
+            `,
+            alreadyVerified: `
+                <div class="success-icon">✓</div>
+                <h1>Email Already Verified</h1>
+                <p>Your email address has already been verified. You can continue using all features of your XS Card account.</p>
+                <a href="/signin" class="button">Sign In</a>
+                <div class="footer">
+                    <p>Thank you for choosing XS Card</p>
+                </div>
+            `,
+            error: `
+                <div class="error-icon">✗</div>
+                <h1>Verification Failed</h1>
+                <p>We couldn't verify your email address. The verification link may have expired or is invalid.</p>
+                <p>Please try signing in to request a new verification email.</p>
+                <a href="/signin" class="button">Sign In</a>
+                <div class="footer">
+                    <p>Need help? Contact support@xscard.com</p>
+                </div>
+            `,
+            userNotFound: `
+                <div class="error-icon">✗</div>
+                <h1>User Not Found</h1>
+                <p>We couldn't find your account. The verification link may be invalid or your account has been deleted.</p>
+                <a href="/signup" class="button">Create Account</a>
+                <div class="footer">
+                    <p>Need help? Contact support@xscard.com</p>
+                </div>
+            `
+        };
+
+        // Parse the URL parameters to get the status
+        const urlParams = new URLSearchParams(window.location.search);
+        const status = urlParams.get('status');
+        const message = urlParams.get('message');
+        
+        // Set the appropriate template based on the status
+        let template;
+        switch(status) {
+            case 'success':
+                template = templates.success;
+                break;
+            case 'already-verified':
+                template = templates.alreadyVerified;
+                break;
+            case 'user-not-found':
+                template = templates.userNotFound;
+                break;
+            default:
+                template = templates.error;
+        }
+        
+        document.getElementById('verification-container').innerHTML = template;
+    </script>
+</body>
+</html>

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Delete Account</title>
+    <style>
+        :root {
+            --primary: #FF4B6E;
+            --secondary: #1B2B5B;
+            --white: #FFFFFF;
+            --black: #000000;
+            --gray: #666666;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Arial', sans-serif;
+        }
+
+        body {
+            background-color: var(--secondary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background: var(--white);
+            border-radius: 20px;
+            padding: 24px;
+            width: 100%;
+            max-width: 400px;
+            position: relative;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .close-button {
+            position: absolute;
+            right: 20px;
+            top: 20px;
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: var(--gray);
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 16px;
+            color: var(--secondary);
+        }
+
+        .description {
+            color: var(--gray);
+            margin-bottom: 32px;
+            line-height: 1.6;
+        }
+
+        .options {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .option {
+            display: flex;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .radio {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #ddd;
+            border-radius: 50%;
+            margin-right: 16px;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .radio.selected {
+            border-color: var(--primary);
+        }
+
+        .radio.selected::after {
+            content: '✓';
+            position: absolute;
+            color: var(--primary);
+            font-size: 16px;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .option-text {
+            font-size: 16px;
+            color: var(--black);
+        }
+
+        .delete-button {
+            width: 100%;
+            padding: 16px;
+            background-color: var(--primary);
+            color: var(--white);
+            border: none;
+            border-radius: 100px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: background-color 0.3s ease;
+        }
+
+        .delete-button:hover {
+            background-color: #e6405f;
+        }
+
+        @media screen and (max-width: 480px) {
+            .container {
+                margin: 10px;
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 22px;
+            }
+        }
+
+        .popup-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .popup {
+            background: var(--white);
+            border-radius: 20px;
+            padding: 24px;
+            width: 90%;
+            max-width: 340px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .popup h2 {
+            color: var(--secondary);
+            font-size: 24px;
+            margin-bottom: 12px;
+        }
+
+        .popup p {
+            color: var(--gray);
+            margin-bottom: 32px;
+            font-size: 14px;
+        }
+
+        .popup-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .popup-delete {
+            background: #FF3B30;
+            color: var(--white);
+            border: none;
+            border-radius: 100px;
+            padding: 16px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .popup-cancel {
+            background: none;
+            border: none;
+            color: var(--secondary);
+            font-size: 16px;
+            cursor: pointer;
+            padding: 8px;
+        }
+
+        .popup-delete:hover {
+            background: #FF2D20;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <button class="close-button">×</button>
+        <h1>Delete account</h1>
+        <p class="description">We're really sorry to see you go. Are you sure you want to delete your account? Once you confirm, your data will be gone.</p>
+        
+        <div class="options">
+            <div class="option">
+                <div class="radio"></div>
+                <span class="option-text">I am no longer using my account</span>
+            </div>
+            <div class="option">
+                <div class="radio selected"></div>
+                <span class="option-text">The service is too expensive</span>
+            </div>
+            <div class="option">
+                <div class="radio"></div>
+                <span class="option-text">I want to change my phone number</span>
+            </div>
+            <div class="option">
+                <div class="radio selected"></div>
+                <span class="option-text">I don't understand how to use</span>
+            </div>
+            <div class="option">
+                <div class="radio"></div>
+                <span class="option-text">Other</span>
+            </div>
+        </div>
+
+        <button class="delete-button">Delete account</button>
+    </div>
+
+    <div class="popup-overlay">
+        <div class="popup">
+            <h2>Delete profile?</h2>
+            <p>Deleting your profile will remove all personal data.</p>
+            <div class="popup-buttons">
+                <button class="popup-delete">Delete</button>
+                <button class="popup-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.querySelectorAll('.option').forEach(option => {
+            option.addEventListener('click', () => {
+                const radio = option.querySelector('.radio');
+                radio.classList.toggle('selected');
+            });
+        });
+
+        const popupOverlay = document.querySelector('.popup-overlay');
+        
+        document.querySelector('.delete-button').addEventListener('click', () => {
+            popupOverlay.style.display = 'flex';
+        });
+
+        document.querySelector('.popup-cancel').addEventListener('click', () => {
+            popupOverlay.style.display = 'none';
+        });
+
+        document.querySelector('.popup-delete').addEventListener('click', () => {
+            // Add your final delete functionality here
+            console.log('Profile deleted');
+            popupOverlay.style.display = 'none';
+        });
+
+        document.querySelector('.close-button').addEventListener('click', () => {
+            // Add close functionality here
+            console.log('Close clicked');
+        });
+
+        // Close popup when clicking outside
+        popupOverlay.addEventListener('click', (e) => {
+            if (e.target === popupOverlay) {
+                popupOverlay.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

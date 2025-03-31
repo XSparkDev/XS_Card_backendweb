@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Save Contact</title>
+    <style>
+        :root {
+            --primary: #FF4B6E;
+            --secondary: #1B2B5B;
+            --white: #FFFFFF;
+            --black: #000000;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--white);
+            min-height: 100vh;
+            width: 100%;
+        }
+
+        .container {
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        .logo-container {
+            width: 100%;
+            position: relative;
+            overflow: visible;
+            margin-bottom: 60px;
+            background-color: #f5f5f5;
+        }
+
+        .company-logo {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+        }
+
+        .profile-overlay {
+            position: absolute;
+            bottom: -40px;
+            left: 50%;
+            transform: translateX(-40px);
+            z-index: 2;
+        }
+
+        .profile-container {
+            width: 80px;
+            height: 80px;
+            overflow: hidden;
+            border-radius: 50%;
+            border: 3px solid var(--white);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .profile-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 50%;
+        }
+
+        .contact-info {
+            margin-top: 45px;
+            padding: 0 20px;
+            text-align: center;
+        }
+
+        .name {
+            font-size: 20px;
+            font-weight: bold;
+            margin: 0;
+            color: var(--secondary);
+        }
+
+        .position, .company {
+            font-size: 16px;
+            margin: 5px 0;
+            color: #666;
+        }
+
+        .contact-section {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 8px 0;
+            padding: 8px;
+        }
+
+        .contact-icon {
+            color: var(--secondary);
+            margin-right: 8px;
+        }
+
+        .contact-text {
+            font-size: 15px;
+            color: #444;
+        }
+
+        .form-container {
+            padding: 20px;
+            margin-top: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            box-sizing: border-box;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .submit-btn {
+            background-color: var(--secondary);
+            color: var(--white);
+            padding: 14px 20px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            width: 100%;
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .submit-btn:hover {
+            opacity: 0.9;
+        }
+
+        @media screen and (max-width: 480px) {
+            .company-logo {
+                height: 120px;
+            }
+
+            .profile-container {
+                width: 70px;
+                height: 70px;
+            }
+
+            .profile-overlay {
+                transform: translateX(-35px);
+            }
+
+            .contact-info {
+                padding: 0 15px;
+            }
+
+            .form-container {
+                padding: 15px;
+            }
+
+            .form-group input {
+                padding: 10px;
+                font-size: 15px;
+            }
+
+            .submit-btn {
+                padding: 12px;
+                font-size: 15px;
+            }
+        }
+
+        @media screen and (min-width: 768px) {
+            .container {
+                max-width: 600px;
+                margin: 0 auto;
+            }
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="logo-container">
+            <img id="companyLogo" class="company-logo" src="/assets/images/logoplaceholder.jpg" alt="Company Logo">
+            <div class="profile-overlay">
+                <div class="profile-container">
+                    <img id="profileImage" class="profile-image" src="/assets/images/profile.png" alt="Profile Image">
+                </div>
+            </div>
+        </div>
+
+        <div class="contact-info">
+            <div id="userData"></div>
+        </div>
+
+        <div class="form-container">
+            <div class="form-group">
+                <input type="text" id="scannerName" placeholder="Your Name">
+            </div>
+            <div class="form-group">
+                <input type="text" id="scannerSurname" placeholder="Your Surname">
+            </div>
+            <div class="form-group">
+                <input type="tel" id="scannerPhone" placeholder="Your Phone Number">
+            </div>
+            <div class="form-group">
+                <input type="email" id="scannerEmail" placeholder="Your Email">
+            </div>
+            <div class="form-group">
+                <input type="text" id="howWeMet" placeholder="How we met">
+            </div>
+            <button class="submit-btn" onclick="handleSubmit()">
+                <span class="material-icons">save</span>
+                Save Contact
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Parse URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const userId = urlParams.get('userId');
+        const cardIndex = urlParams.get('cardIndex') || 0;
+        let userData = null;
+
+        // Updated loadUserData function to use new endpoint
+        async function loadUserData() {
+            try {
+                const response = await fetch(`/public/cards/${userId}?cardIndex=${cardIndex}`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch card data');
+                }
+                
+                userData = await response.json();
+                
+                // Update profile image if available
+                if (userData.profileImage) {
+                    document.getElementById('profileImage').src = userData.profileImage;
+                }
+
+                // Update company logo if available
+                if (userData.companyLogo) {
+                    document.getElementById('companyLogo').src = userData.companyLogo;
+                }
+
+                // Update user information with styled elements
+                document.getElementById('userData').innerHTML = `
+                    <h2 class="name">${userData.name} ${userData.surname}</h2>
+                    <p class="position">${userData.occupation}</p>
+                    <p class="company">${userData.company}</p>
+                    
+                    <div class="contact-section">
+                        <span class="material-icons contact-icon">email</span>
+                        <span class="contact-text">${userData.email}</span>
+                    </div>
+                    
+                    <div class="contact-section">
+                        <span class="material-icons contact-icon">phone</span>
+                        <span class="contact-text">${userData.phone || 'No phone number available'}</span>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('userData').innerHTML = '<p>Error loading contact details</p>';
+            }
+        }
+
+        async function saveContactToDatabase() {
+            const scannerName = document.getElementById('scannerName').value;
+            const scannerSurname = document.getElementById('scannerSurname').value;
+            const scannerPhone = document.getElementById('scannerPhone').value;
+            const scannerEmail = document.getElementById('scannerEmail').value;
+            const howWeMet = document.getElementById('howWeMet').value;
+
+            // Only require name, surname and how we met
+            if (!scannerName || !scannerSurname || !howWeMet) {
+                alert('Please fill in all required details');
+                return false;
+            }
+
+            // Use EXACTLY the same payload structure that works in Postman
+            const payload = {
+                userId: userData.id,
+                contactInfo: {
+                    name: scannerName,
+                    surname: scannerSurname,
+                    phone: scannerPhone,
+                    email: scannerEmail, // Include email exactly as in your working example
+                    howWeMet: howWeMet
+                }
+            };
+
+            try {
+                console.log('Using the working endpoint /AddContact with payload:', payload);
+                
+                // Use EXACTLY the endpoint that works
+                const response = await fetch('/AddContact', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                console.log('Response status:', response.status);
+                const result = await response.json();
+                console.log('Response data:', result);
+
+                if (!response.ok) {
+                    throw new Error(`Failed to save contact: ${response.status}`);
+                }
+
+                return true;
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to save contact: ' + error.message);
+                return false;
+            }
+        }
+
+        async function handleSubmit() {
+            if (!userData) {
+                alert('No user data available to save!');
+                return;
+            }
+
+            // First save contact to database
+            const savedToDb = await saveContactToDatabase();
+            if (!savedToDb) return;
+
+            // Create and download vCard
+            const vCardData = `BEGIN:VCARD
+VERSION:3.0
+FN:${userData.name} ${userData.surname}
+EMAIL:${userData.email}
+TEL;TYPE=CELL:${userData.phone || ''}
+ORG:${userData.company}
+TITLE:${userData.occupation}
+END:VCARD`;
+
+            const blob = new Blob([vCardData.trim()], { type: 'text/vcard' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `${userData.name}_${userData.surname}.vcf`;
+            link.click();
+
+            alert('Contact saved successfully!');
+            setTimeout(() => {
+                window.close();
+            }, 2000);
+        }
+
+        // Load user data when page loads
+        if (userId) {
+            loadUserData();
+        } else {
+            document.getElementById('userData').innerHTML = '<p>No contact information provided</p>';
+        }
+    </script>
+</body>
+</html>
