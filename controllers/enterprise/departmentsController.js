@@ -86,7 +86,7 @@ exports.getDepartmentById = async (req, res) => {
 exports.createDepartment = async (req, res) => {
     try {
         const { enterpriseId } = req.params;
-        const { name, description, managers = [], parentDepartmentId = null } = req.body;
+        const { name, description, parentDepartmentId = null } = req.body;
         
         if (!enterpriseId) {
             return sendError(res, 400, 'Enterprise ID is required');
@@ -104,6 +104,14 @@ exports.createDepartment = async (req, res) => {
             return sendError(res, 404, 'Enterprise not found');
         }
 
+        // Convert department name to a URL-friendly slug
+        const slugify = str => str.toLowerCase()
+            .replace(/[^\w\s-]/g, '') // Remove non-word chars
+            .replace(/[\s_-]+/g, '-') // Replace spaces and underscores with hyphens
+            .replace(/^-+|-+$/g, ''); // Remove leading/trailing hyphens
+            
+        const departmentId = slugify(name);
+        
         // Check for duplicate department name
         const duplicateCheck = await db.collection('enterprise')
             .doc(enterpriseId)
@@ -114,48 +122,52 @@ exports.createDepartment = async (req, res) => {
         if (!duplicateCheck.empty) {
             return sendError(res, 409, 'A department with this name already exists');
         }
-
-        // Validate parent department if provided
-        if (parentDepartmentId) {
-            const parentRef = db.collection('enterprise')
-                .doc(enterpriseId)
-                .collection('departments')
-                .doc(parentDepartmentId);
-                
-            const parentDoc = await parentRef.get();
+        
+        // Check if a department with this ID already exists (from a similarly named department)
+        const existingDocCheck = await db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .doc(departmentId)
+            .get();
             
-            if (!parentDoc.exists) {
-                return sendError(res, 404, 'Parent department not found');
-            }
+        if (existingDocCheck.exists) {
+            return sendError(res, 409, 'A department with a similar name already exists');
         }
 
-        // Create new department
+        // Create department data object
         const departmentData = {
             name,
             description: description || '',
-            managers: managers.map(manager => db.doc(`users/${manager}`)),
             parentDepartmentId,
             createdAt: admin.firestore.Timestamp.now(),
             updatedAt: admin.firestore.Timestamp.now(),
             memberCount: 0
         };
 
-        const departmentRef = db.collection('enterprise')
+        // Use the document reference with our custom ID
+        const newDepartmentRef = db.collection('enterprise')
             .doc(enterpriseId)
-            .collection('departments');
+            .collection('departments')
+            .doc(departmentId);
             
-        const newDepartment = await departmentRef.add(departmentData);
+        await newDepartmentRef.set(departmentData);
+        
+        console.log(`Created department with ID: ${departmentId}`);
+        
+        // Initialize the employees subcollection structure path for reference
+        const employeesCollectionPath = `enterprise/${enterpriseId}/departments/${departmentId}/employees`;
+        console.log(`Employees collection path: ${employeesCollectionPath}`);
 
         res.status(201).send({
             success: true,
             message: 'Department created successfully',
             department: {
-                id: newDepartment.id,
+                id: departmentId,
                 ...departmentData,
                 createdAt: departmentData.createdAt.toDate().toISOString(),
-                updatedAt: departmentData.updatedAt.toDate().toISOString(),
-                managers: managers // Return just the IDs for the response
-            }
+                updatedAt: departmentData.updatedAt.toDate().toISOString()
+            },
+            employeesCollectionPath
         });
     } catch (error) {
         sendError(res, 500, 'Error creating department', error);
