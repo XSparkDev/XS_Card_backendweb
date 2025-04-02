@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const departmentsController = require('../controllers/enterprise/departmentsController');
+const teamsController = require('../controllers/enterprise/teamsController');
 const { authenticateUser } = require('../middleware/auth');
 
 // Apply authentication to all department routes
@@ -13,10 +14,21 @@ router.post('/enterprise/:enterpriseId/departments', departmentsController.creat
 router.put('/enterprise/:enterpriseId/departments/:departmentId', departmentsController.updateDepartment);
 router.delete('/enterprise/:enterpriseId/departments/:departmentId', departmentsController.deleteDepartment);
 
+// Enterprise teams routes
+router.get('/enterprise/:enterpriseId/departments/:departmentId/teams', teamsController.getAllTeams);
+router.post('/enterprise/:enterpriseId/departments/:departmentId/teams', teamsController.createTeam);
+router.get('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId', teamsController.getTeamById);
+router.put('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId', teamsController.updateTeam);
+router.patch('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId', teamsController.patchTeam); // Add PATCH endpoint
+router.delete('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId', teamsController.deleteTeam);
+router.get('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId/members', teamsController.getTeamMembers);
+
 // Enterprise employees routes
 router.get('/enterprise/:enterpriseId/departments/:departmentId/employees', departmentsController.getDepartmentEmployees);
-router.post('/enterprise/:enterpriseId/departments/:departmentId/employees', departmentsController.addEmployee); // New route to add employee
+router.post('/enterprise/:enterpriseId/departments/:departmentId/employees', departmentsController.addEmployee);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId', departmentsController.getEmployeeById);
+router.put('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId', departmentsController.updateEmployee);
+router.delete('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId', departmentsController.deleteEmployee);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId/card', departmentsController.getEmployeeCard);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/query-employee', departmentsController.queryEmployee);
 
