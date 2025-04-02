@@ -624,7 +624,7 @@ exports.queryEmployee = async (req, res) => {
 // Add or link an employee to a department
 exports.addEmployee = async (req, res) => {
     try {
-        const { enterpriseId, departmentId } = req.params;
+        const { enterpriseId, departmentId } = req.params; // Add this line to extract parameters
         
         // Debug the incoming request body
         console.log('Request body:', JSON.stringify(req.body, null, 2));
@@ -639,7 +639,8 @@ exports.addEmployee = async (req, res) => {
             title,
             existingUserId, // If linking an existing user
             colorScheme, // Allow setting a custom color scheme
-            company // Allow setting the company name
+            company, // Allow setting the company name
+            teamId // New: team ID to assign the employee to
         } = req.body;
         
         // Validate required parameters
@@ -677,6 +678,17 @@ exports.addEmployee = async (req, res) => {
         
         if (!departmentDoc.exists) {
             return sendError(res, 404, 'Department not found');
+        }
+
+        // Check if team exists (if specified)
+        let teamRef = null;
+        if (teamId) {
+            teamRef = departmentRef.collection('teams').doc(teamId);
+            const teamDoc = await teamRef.get();
+            
+            if (!teamDoc.exists) {
+                return sendError(res, 404, `Team with ID ${teamId} not found in this department`);
+            }
         }
 
         // Get enterprise data to check for default color scheme
@@ -800,6 +812,12 @@ exports.addEmployee = async (req, res) => {
                 updatedAt: admin.firestore.Timestamp.now()
             };
             
+            // Add team reference if provided
+            if (teamRef) {
+                employeeData.teamRef = teamRef;
+                employeeData.teamId = teamId;
+            }
+            
             // Create or update card document with ALL profile information
             const cardsRef = db.collection('cards').doc(userId);
             const cardsDoc = await transaction.get(cardsRef);
@@ -829,9 +847,30 @@ exports.addEmployee = async (req, res) => {
                 employeeData.cardsRef = cardsRef;
             }
             
-            // Create employee document
+            // Create employee document in department
             const employeeRef = departmentRef.collection('employees').doc();
             transaction.set(employeeRef, employeeData);
+            
+            // Create a copy of the employee in the team's employees subcollection if team is specified
+            let teamEmployeeRef = null;
+            if (teamRef) {
+                // Create the same employee data in the team's employees subcollection
+                teamEmployeeRef = teamRef.collection('employees').doc(employeeRef.id); // Use same ID for consistency
+                
+                // Create a teamEmployee data object that includes department reference
+                const teamEmployeeData = {
+                    ...employeeData,
+                    departmentRef: departmentRef,
+                    departmentId: departmentId,
+                    mainEmployeeRef: employeeRef // Reference to the main employee document
+                };
+                
+                transaction.set(teamEmployeeRef, teamEmployeeData);
+                
+                // Also update the main employee record with this reference
+                employeeData.teamEmployeeRef = teamEmployeeRef;
+                transaction.update(employeeRef, { teamEmployeeRef: teamEmployeeRef });
+            }
             
             // Update department member count
             transaction.update(departmentRef, {
@@ -839,23 +878,43 @@ exports.addEmployee = async (req, res) => {
                 updatedAt: admin.firestore.Timestamp.now()
             });
             
+            // Update team member count if applicable
+            if (teamRef) {
+                transaction.update(teamRef, {
+                    memberCount: admin.firestore.FieldValue.increment(1),
+                    updatedAt: admin.firestore.Timestamp.now()
+                });
+            }
+            
             // Update user record with ONLY the reference fields and isEmployee flag
-            transaction.set(db.collection('users').doc(userId), {
+            const userUpdateData = {
                 employeeRef: employeeRef,
                 departmentRef: departmentRef,
                 enterpriseRef: db.doc(`enterprise/${enterpriseId}`),
                 isEmployee: true,
                 lastVerificationEmailSent: verificationToken ? Date.now() : admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+            };
+            
+            // Add team references to user document if applicable
+            if (teamRef) {
+                userUpdateData.teamRef = teamRef;
+                userUpdateData.teamEmployeeRef = teamEmployeeRef;
+            }
+            
+            transaction.set(db.collection('users').doc(userId), userUpdateData, { merge: true });
             
             return {
                 userId,
                 employeeId: employeeRef.id,
+                teamId: teamId || null,
+                teamEmployeeRefPath: teamEmployeeRef ? teamEmployeeRef.path : null,
                 isNewUser,
                 employeeData: {
                     ...employeeData,
                     userRef: `users/${userId}`,
-                    cardsRef: employeeData.cardsRef ? employeeData.cardsRef.path : null
+                    cardsRef: employeeData.cardsRef ? employeeData.cardsRef.path : null,
+                    teamRef: teamRef ? teamRef.path : null,
+                    teamEmployeeRef: teamEmployeeRef ? teamEmployeeRef.path : null
                 },
                 verificationSent: !!verificationToken
             };
@@ -876,11 +935,299 @@ exports.addEmployee = async (req, res) => {
                 ...responseData
             },
             userId: result.userId,
+            teamId: result.teamId,
+            teamEmployeeRefPath: result.teamEmployeeRefPath,
             colorScheme: responseData.colorScheme,
             verificationSent: result.verificationSent
         });
     } catch (error) {
         console.error('Error adding employee:', error);
         sendError(res, 500, 'Error adding employee', error);
+    }
+};
+
+// Update an existing employee
+exports.updateEmployee = async (req, res) => {
+    try {
+        const { enterpriseId, departmentId, employeeId } = req.params;
+        const { firstName, lastName, email, phone, title, colorScheme, teamId } = req.body;
+        
+        if (!enterpriseId || !departmentId || !employeeId) {
+            return sendError(res, 400, 'Enterprise ID, Department ID, and Employee ID are required');
+        }
+        
+        // Check if department exists
+        const departmentRef = db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .doc(departmentId);
+            
+        const departmentDoc = await departmentRef.get();
+        
+        if (!departmentDoc.exists) {
+            return sendError(res, 404, 'Department not found');
+        }
+        
+        // Check if employee exists
+        const employeeRef = departmentRef.collection('employees').doc(employeeId);
+        const employeeDoc = await employeeRef.get();
+        
+        if (!employeeDoc.exists) {
+            return sendError(res, 404, 'Employee not found');
+        }
+        
+        const employeeData = employeeDoc.data();
+        
+        // Check if team reference is being changed
+        let newTeamRef = null;
+        let oldTeamRef = employeeData.teamRef || null;
+        let teamChanged = false;
+        
+        if (teamId !== undefined) {
+            if (teamId === null) {
+                // Removing from team
+                teamChanged = !!oldTeamRef;
+                oldTeamRef = employeeData.teamRef;
+                newTeamRef = null;
+            } else if (!employeeData.teamId || teamId !== employeeData.teamId) {
+                // Changing team or adding to team
+                teamChanged = true;
+                const teamDoc = await departmentRef.collection('teams').doc(teamId).get();
+                
+                if (!teamDoc.exists) {
+                    return sendError(res, 404, `Team with ID ${teamId} not found`);
+                }
+                
+                newTeamRef = teamDoc.ref;
+            }
+        }
+        
+        // Prepare update data
+        const updateData = {
+            updatedAt: admin.firestore.Timestamp.now()
+        };
+        
+        if (firstName !== undefined) updateData.firstName = firstName;
+        if (lastName !== undefined) updateData.lastName = lastName;
+        if (email !== undefined) updateData.email = email;
+        if (phone !== undefined) updateData.phone = phone;
+        if (title !== undefined) updateData.title = title;
+        if (colorScheme !== undefined) updateData.colorScheme = colorScheme;
+        
+        // Run transaction for atomic updates
+        await db.runTransaction(async (transaction) => {
+            // Update team references if team is changing
+            if (teamChanged) {
+                // Add to new team if specified
+                if (newTeamRef) {
+                    updateData.teamRef = newTeamRef;
+                    updateData.teamId = teamId;
+                    
+                    // Create copy in new team's employees subcollection
+                    const newTeamEmployeeRef = newTeamRef.collection('employees').doc(employeeId);
+                    
+                    // Get current employee data to create the team copy
+                    const currentData = (await transaction.get(employeeRef)).data();
+                    
+                    // Create team employee data
+                    const teamEmployeeData = {
+                        ...currentData,
+                        ...updateData,
+                        departmentRef: departmentRef,
+                        departmentId: departmentId,
+                        mainEmployeeRef: employeeRef,
+                        updatedAt: admin.firestore.Timestamp.now()
+                    };
+                    
+                    // Set the new team employee document
+                    transaction.set(newTeamEmployeeRef, teamEmployeeData);
+                    
+                    // Update employee with team reference
+                    updateData.teamEmployeeRef = newTeamEmployeeRef;
+                    
+                    // Increment new team member count
+                    transaction.update(newTeamRef, {
+                        memberCount: admin.firestore.FieldValue.increment(1),
+                        updatedAt: admin.firestore.Timestamp.now()
+                    });
+                    
+                    // Update user record with team references
+                    transaction.update(db.collection('users').doc(employeeData.userRef.id), {
+                        teamRef: newTeamRef,
+                        teamEmployeeRef: newTeamEmployeeRef
+                    });
+                } else {
+                    // Remove team references
+                    updateData.teamRef = admin.firestore.FieldValue.delete();
+                    updateData.teamId = admin.firestore.FieldValue.delete();
+                    updateData.teamEmployeeRef = admin.firestore.FieldValue.delete();
+                    
+                    // Update user record to remove team references
+                    transaction.update(db.collection('users').doc(employeeData.userRef.id), {
+                        teamRef: admin.firestore.FieldValue.delete(),
+                        teamEmployeeRef: admin.firestore.FieldValue.delete()
+                    });
+                }
+                
+                // Remove from old team if it exists
+                if (oldTeamRef) {
+                    // Get old team employee reference
+                    const oldTeamEmployeeRef = employeeData.teamEmployeeRef;
+                    
+                    if (oldTeamEmployeeRef) {
+                        // Delete the employee document from old team
+                        transaction.delete(oldTeamEmployeeRef);
+                    }
+                    
+                    // Decrement old team member count
+                    transaction.update(oldTeamRef, {
+                        memberCount: admin.firestore.FieldValue.increment(-1),
+                        updatedAt: admin.firestore.Timestamp.now()
+                    });
+                }
+            } else if (employeeData.teamRef) {
+                // Update the team copy if it exists but team didn't change
+                const teamEmployeeRef = employeeData.teamEmployeeRef;
+                if (teamEmployeeRef && Object.keys(updateData).length > 1) { // Check if we have updates beyond timestamp
+                    transaction.update(teamEmployeeRef, updateData);
+                }
+            }
+            
+            // Update the main employee document
+            transaction.update(employeeRef, updateData);
+            
+            // Update card document if it exists
+            if (employeeData.cardsRef && (firstName !== undefined || lastName !== undefined || email !== undefined || phone !== undefined || title !== undefined || colorScheme !== undefined)) {
+                const cardsRef = employeeData.cardsRef;
+                const cardsDoc = await transaction.get(cardsRef);
+                
+                if (cardsDoc.exists && cardsDoc.data().cards && Array.isArray(cardsDoc.data().cards)) {
+                    const cardData = cardsDoc.data();
+                    const updatedCards = cardData.cards.map((card, index) => {
+                        if (index === 0) { // Update main card
+                            const updatedCard = { ...card };
+                            if (firstName !== undefined) updatedCard.name = firstName;
+                            if (lastName !== undefined) updatedCard.surname = lastName;
+                            if (email !== undefined) updatedCard.email = email;
+                            if (phone !== undefined) updatedCard.phone = phone;
+                            if (title !== undefined) updatedCard.occupation = title;
+                            if (colorScheme !== undefined) updatedCard.colorScheme = colorScheme;
+                            return updatedCard;
+                        }
+                        return card;
+                    });
+                    
+                    transaction.update(cardsRef, { cards: updatedCards });
+                }
+            }
+        });
+        
+        // Get the updated employee
+        const updatedEmployeeDoc = await employeeRef.get();
+        const updatedEmployeeData = updatedEmployeeDoc.data();
+        
+        // Format timestamps and references for response
+        const formattedEmployee = {
+            id: employeeId,
+            ...updatedEmployeeData,
+            createdAt: updatedEmployeeData.createdAt.toDate().toISOString(),
+            updatedAt: updatedEmployeeData.updatedAt.toDate().toISOString(),
+            userRef: updatedEmployeeData.userRef.path,
+            cardsRef: updatedEmployeeData.cardsRef ? updatedEmployeeData.cardsRef.path : null,
+            teamRef: updatedEmployeeData.teamRef ? updatedEmployeeData.teamRef.path : null,
+            teamEmployeeRef: updatedEmployeeData.teamEmployeeRef ? updatedEmployeeData.teamEmployeeRef.path : null
+        };
+        
+        res.status(200).send({
+            success: true,
+            message: 'Employee updated successfully',
+            employee: formattedEmployee,
+            teamChanged: teamChanged
+        });
+    } catch (error) {
+        console.error('Error updating employee:', error);
+        sendError(res, 500, 'Error updating employee', error);
+    }
+};
+
+// Delete an employee
+exports.deleteEmployee = async (req, res) => {
+    try {
+        const { enterpriseId, departmentId, employeeId } = req.params;
+        
+        if (!enterpriseId || !departmentId || !employeeId) {
+            return sendError(res, 400, 'Enterprise ID, Department ID, and Employee ID are required');
+        }
+        
+        // Check if department exists
+        const departmentRef = db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .doc(departmentId);
+            
+        const departmentDoc = await departmentRef.get();
+        
+        if (!departmentDoc.exists) {
+            return sendError(res, 404, 'Department not found');
+        }
+        
+        // Check if employee exists
+        const employeeRef = departmentRef.collection('employees').doc(employeeId);
+        const employeeDoc = await employeeRef.get();
+        
+        if (!employeeDoc.exists) {
+            return sendError(res, 404, 'Employee not found');
+        }
+        
+        const employeeData = employeeDoc.data();
+        
+        // Run transaction to maintain data integrity
+        await db.runTransaction(async (transaction) => {
+            // Delete employee from department
+            transaction.delete(employeeRef);
+            
+            // Decrement department member count
+            transaction.update(departmentRef, {
+                memberCount: admin.firestore.FieldValue.increment(-1),
+                updatedAt: admin.firestore.Timestamp.now()
+            });
+            
+            // Remove from team if assigned
+            if (employeeData.teamRef && employeeData.teamEmployeeRef) {
+                // Delete from team's employees collection
+                transaction.delete(employeeData.teamEmployeeRef);
+                
+                // Decrement team member count
+                transaction.update(employeeData.teamRef, {
+                    memberCount: admin.firestore.FieldValue.increment(-1),
+                    updatedAt: admin.firestore.Timestamp.now()
+                });
+            }
+            
+            // Update user document to remove employee references
+            const userRef = employeeData.userRef;
+            if (userRef) {
+                transaction.update(userRef, {
+                    employeeRef: admin.firestore.FieldValue.delete(),
+                    departmentRef: admin.firestore.FieldValue.delete(),
+                    teamRef: admin.firestore.FieldValue.delete(),
+                    teamEmployeeRef: admin.firestore.FieldValue.delete(),
+                    isEmployee: false
+                });
+            }
+            
+            // Note: We're not deleting the card or user account
+            // This allows the user to remain in the system even if no longer an employee
+        });
+        
+        res.status(200).send({
+            success: true,
+            message: 'Employee deleted successfully',
+            employeeId,
+            departmentId
+        });
+    } catch (error) {
+        console.error('Error deleting employee:', error);
+        sendError(res, 500, 'Error deleting employee', error);
     }
 };
