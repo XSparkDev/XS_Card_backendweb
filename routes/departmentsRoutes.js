@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const departmentsController = require('../controllers/enterprise/departmentsController');
 const teamsController = require('../controllers/enterprise/teamsController');
+const exportController = require('../controllers/enterprise/exportController'); // Added exportController
 const { authenticateUser } = require('../middleware/auth');
 
 // Apply authentication to all department routes
@@ -22,6 +23,11 @@ router.put('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId', 
 router.patch('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId', teamsController.patchTeam); // Add PATCH endpoint
 router.delete('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId', teamsController.deleteTeam);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId/members', teamsController.getTeamMembers);
+
+// Export routes
+router.get('/enterprise/:enterpriseId/departments/:departmentId/exports/teams', exportController.exportTeams);
+router.get('/enterprise/:enterpriseId/departments/:departmentId/exports/teams/:teamId', exportController.exportIndividualTeam);
+router.get('/enterprise/:enterpriseId/exports/teams', exportController.exportTeams);
 
 // Enterprise employees routes
 router.get('/enterprise/:enterpriseId/departments/:departmentId/employees', departmentsController.getDepartmentEmployees);
