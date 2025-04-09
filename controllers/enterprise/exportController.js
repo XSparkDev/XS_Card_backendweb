@@ -1,5 +1,6 @@
 const { db, admin } = require('../../firebase.js');
 const csv = require('csv-stringify');
+const { logActivity, ACTIONS, RESOURCES } = require('../../utils/logger');
 
 // Helper function for standardized error responses
 const sendError = (res, status, message, error = null) => {
@@ -117,6 +118,19 @@ exports.exportTeams = async (req, res) => {
         // Generate CSV
         csv.stringify(rows, (err, output) => {
             if (err) {
+                logActivity({
+                    action: ACTIONS.ERROR,
+                    resource: RESOURCES.TEAM,
+                    userId: req.user?.uid || 'system',
+                    resourceId: departmentId || enterpriseId,
+                    status: 'error',
+                    details: {
+                        error: err.message,
+                        operation: 'export_teams',
+                        enterpriseId,
+                        departmentId 
+                    }
+                });
                 return sendError(res, 500, 'Error generating CSV', err);
             }
 
@@ -128,10 +142,40 @@ exports.exportTeams = async (req, res) => {
             res.setHeader('Content-Type', 'text/csv');
             res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
+            // Log successful export
+            logActivity({
+                action: ACTIONS.EXPORT,
+                resource: RESOURCES.TEAM,
+                userId: req.user?.uid || 'system',
+                resourceId: departmentId || enterpriseId,
+                enterpriseId,
+                departmentId,
+                details: {
+                    fileName: filename,
+                    teamCount: rows.length - 1, // Subtract header row
+                    exportType: departmentId ? 'department_teams' : 'enterprise_teams'
+                }
+            });
+
             // Send the CSV
             res.status(200).send(output);
         });
     } catch (error) {
+        // Log error
+        logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.TEAM,
+            userId: req.user?.uid || 'system',
+            resourceId: enterpriseId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'export_teams',
+                enterpriseId,
+                departmentId
+            }
+        });
+        
         sendError(res, 500, 'Error exporting teams', error);
     }
 };
@@ -216,6 +260,20 @@ exports.exportIndividualTeam = async (req, res) => {
         // Generate CSV
         csv.stringify(rows, (err, output) => {
             if (err) {
+                logActivity({
+                    action: ACTIONS.ERROR,
+                    resource: RESOURCES.TEAM,
+                    userId: req.user?.uid || 'system',
+                    resourceId: teamId,
+                    status: 'error',
+                    details: {
+                        error: err.message,
+                        operation: 'export_individual_team',
+                        enterpriseId,
+                        departmentId,
+                        teamId
+                    }
+                });
                 return sendError(res, 500, 'Error generating CSV', err);
             }
 
@@ -225,10 +283,42 @@ exports.exportIndividualTeam = async (req, res) => {
             res.setHeader('Content-Type', 'text/csv');
             res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
+            // Log successful export
+            logActivity({
+                action: ACTIONS.EXPORT,
+                resource: RESOURCES.TEAM,
+                userId: req.user?.uid || 'system',
+                resourceId: teamId,
+                enterpriseId,
+                departmentId,
+                details: {
+                    fileName: filename,
+                    teamName: team.name,
+                    memberCount: team.memberCount || 0,
+                    exportType: 'individual_team'
+                }
+            });
+
             // Send the CSV
             res.status(200).send(output);
         });
     } catch (error) {
+        // Log error
+        logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.TEAM,
+            userId: req.user?.uid || 'system',
+            resourceId: teamId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'export_individual_team',
+                enterpriseId,
+                departmentId,
+                teamId
+            }
+        });
+        
         sendError(res, 500, 'Error exporting team', error);
     }
 };

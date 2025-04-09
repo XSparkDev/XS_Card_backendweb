@@ -1,7 +1,8 @@
-const { db } = require('../firebase.js');
+const { db, admin } = require('../firebase.js');
 const { formatDate } = require('../utils/dateFormatter');
 const { sendMailWithStatus } = require('../public/Utils/emailService');
 const { createCalendarEvent } = require('../public/Utils/calendarService');
+const { logActivity, ACTIONS, RESOURCES } = require('../utils/logger');
 
 // Helper function for error responses
 const sendError = (res, status, message, error = null) => {
@@ -67,202 +68,201 @@ exports.getAllMeetings = async (req, res) => {
 };
 
 exports.createMeeting = async (req, res) => {
-    const { meetingWith, meetingWhen } = req.body;
-    const description = req.body.description || ''; // Make description optional
-    const duration = req.body.duration || 30; // Default to 30 minutes if not specified
-    const userId = req.user.uid;
-
-    if (!meetingWith || !meetingWhen) {
-        return res.status(400).send({ 
-            message: 'Missing required fields',
-            required: ['meetingWith', 'meetingWhen']
-        });
-    }
+    console.log('🔍 CREATE MEETING CALLED', {
+        body: req.body,
+        params: req.params,
+        user: req.user,
+        path: req.path
+    });
 
     try {
-        const meetingRef = db.collection('meetings').doc(userId);
-        const doc = await meetingRef.get();
-
-        // Store as Date object in Firestore with duration in minutes
-        const newMeeting = {
-            meetingWith,
-            meetingWhen: new Date(meetingWhen),
-            description,
-            duration // Store duration in minutes
+        const userId = req.params.userId || req.user?.uid;
+        console.log('🔑 Using userId:', userId);
+        
+        const meetingData = req.body;
+        console.log('📅 Meeting data:', meetingData);
+        
+        // Create a new document reference
+        const meetingRef = db.collection('meetings').doc();
+        console.log('📝 Created doc reference:', meetingRef.id);
+        
+        // Add timestamp fields
+        const timestamp = admin.firestore.Timestamp.now();
+        const meeting = {
+            ...meetingData,
+            userId: db.doc(`users/${userId}`),
+            createdAt: timestamp,
+            updatedAt: timestamp
         };
-
-        if (doc.exists) {
-            await meetingRef.update({
-                bookings: [...(doc.data().bookings || []), newMeeting]
+        
+        // Save to Firestore
+        await meetingRef.set(meeting);
+        console.log('💾 Saved meeting to Firestore');
+        
+        // Log meeting creation
+        console.log('📊 About to log meeting creation activity');
+        try {
+            await logActivity({
+                action: ACTIONS.CREATE,
+                resource: RESOURCES.MEETING,
+                userId: userId,
+                resourceId: meetingRef.id,
+                details: {
+                    title: meetingData.title || 'Untitled Meeting',
+                    date: meetingData.date || meetingData.startDateTime || new Date().toISOString(),
+                    participantCount: meetingData.participants?.length || meetingData.attendees?.length || 0
+                }
             });
-        } else {
-            await meetingRef.set({
-                bookings: [newMeeting]
-            });
+            console.log('✅ Successfully logged meeting creation');
+        } catch (logError) {
+            console.error('❌ Failed to log meeting creation:', logError);
         }
-
-        // Format for response
-        const responseData = {
-            ...newMeeting,
-            meetingWhen: formatDate(newMeeting.meetingWhen)
-        };
-
+        
+        // Return success response
         res.status(201).send({
-            success: true,
-            message: 'Meeting created successfully',
-            meeting: responseData
+            id: meetingRef.id,
+            ...meeting
         });
     } catch (error) {
-        sendError(res, 500, 'Error creating meeting', error);
+        console.error('❌ Main error in createMeeting:', error);
+        // Log error - with try/catch to avoid double errors
+        try {
+            await logActivity({
+                action: ACTIONS.ERROR,
+                resource: RESOURCES.MEETING,
+                userId: req.params.userId || req.user?.uid || 'unknown',
+                status: 'error',
+                details: {
+                    error: error.message,
+                    operation: 'create_meeting'
+                }
+            });
+        } catch (logError) {
+            console.error('Failed to log error:', logError);
+        }
+        
+        console.error('Error creating meeting:', error);
+        res.status(500).send({ 
+            message: 'Error creating meeting',
+            error: error.message 
+        });
     }
 };
 
 exports.updateMeeting = async (req, res) => {
-    const { userId, meetingIndex } = req.params;
-    const updateData = req.body;
-
     try {
-        // Verify if the requesting user has access to this userId's meetings
-        if (userId !== req.user.uid) {
-            return res.status(403).json({ 
-                success: false,
-                message: 'Unauthorized access to these meetings',
-                error: 'Authentication failed: You can only update your own meetings'
-            });
-        }
-
-        const meetingRef = db.collection('meetings').doc(userId);
-        const doc = await meetingRef.get();
-
-        if (!doc.exists || !doc.data().bookings) {
-            return res.status(404).json({ 
-                success: false,
-                message: 'No meetings found',
-                details: {
-                    userId,
-                    reason: !doc.exists ? 'User has no meetings document' : 'Bookings array is empty'
-                }
-            });
-        }
-
-        const bookings = doc.data().bookings;
-        if (!bookings[meetingIndex]) {
-            return res.status(404).json({ 
-                success: false,
-                message: 'Meeting not found',
-                details: {
-                    userId,
-                    meetingIndex,
-                    totalMeetings: bookings.length
-                }
-            });
-        }
-
-        // Update meeting data
-        bookings[meetingIndex] = {
-            ...bookings[meetingIndex],
-            ...updateData,
-            meetingWhen: updateData.meetingWhen ? new Date(updateData.meetingWhen) : bookings[meetingIndex].meetingWhen
-        };
-
-        await meetingRef.update({ bookings });
-
-        // Format the date for response
-        const responseData = {
-            ...bookings[meetingIndex],
-            meetingWhen: new Date(bookings[meetingIndex].meetingWhen)
-                .toLocaleString('en-US', {
-                    month: 'long',
-                    day: 'numeric',
-                    year: 'numeric',
-                    hour: 'numeric',
-                    minute: 'numeric',
-                    timeZoneName: 'short'
-                })
-                .replace(',', '')
-                .replace(/\s+/g, ' ')
-                .replace(/(\d+:\d+)/, 'at $1')
-        };
-
-        res.status(200).json({
-            success: true,
-            message: 'Meeting updated successfully',
-            data: {
-                userId,
-                meetingIndex,
-                meeting: responseData
+        const { userId, meetingId } = req.params;
+        const updatedData = req.body;
+        
+        // Add updated timestamp
+        updatedData.updatedAt = admin.firestore.Timestamp.now();
+        
+        // Update the meeting
+        const meetingRef = db.collection('meetings').doc(meetingId);
+        await meetingRef.update(updatedData);
+        
+        // Log meeting update
+        await logActivity({
+            action: ACTIONS.UPDATE,
+            resource: RESOURCES.MEETING,
+            userId: userId,
+            resourceId: meetingId,
+            details: {
+                title: updatedData.title,
+                fieldsUpdated: Object.keys(updatedData).filter(k => k !== 'updatedAt')
             }
         });
+        
+        // Return success
+        res.status(200).send({
+            id: meetingId,
+            ...updatedData
+        });
     } catch (error) {
-        sendError(res, 500, 'Error updating meeting', error);
+        // Log error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.MEETING,
+            userId: req.params.userId,
+            resourceId: req.params.meetingId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'update_meeting'
+            }
+        });
+        
+        console.error('Error updating meeting:', error);
+        res.status(500).send({ 
+            message: 'Error updating meeting',
+            error: error.message 
+        });
     }
 };
 
 exports.deleteMeeting = async (req, res) => {
-    const { userId, meetingIndex } = req.params;
-
     try {
-        // Verify if the requesting user has access
-        if (userId !== req.user.uid) {
-            return res.status(403).json({ 
-                success: false,
-                message: 'Unauthorized access to these meetings',
-                error: 'Authentication failed: You can only delete your own meetings'
-            });
+        const { userId, meetingId } = req.params;
+        
+        // Get meeting data for logging before deletion
+        const meetingRef = db.collection('meetings').doc(meetingId);
+        const meetingDoc = await meetingRef.get();
+        
+        if (!meetingDoc.exists) {
+            return res.status(404).send({ message: 'Meeting not found' });
         }
-
-        const meetingRef = db.collection('meetings').doc(userId);
-        const doc = await meetingRef.get();
-
-        if (!doc.exists || !doc.data().bookings) {
-            return res.status(404).json({
-                success: false,
-                message: 'No meetings found',
-                details: {
-                    userId,
-                    reason: !doc.exists ? 'User has no meetings document' : 'Bookings array is empty'
-                }
-            });
-        }
-
-        const bookings = doc.data().bookings;
-        if (!bookings[meetingIndex]) {
-            return res.status(404).json({
-                success: false,
-                message: 'Meeting not found',
-                details: {
-                    userId,
-                    meetingIndex,
-                    totalMeetings: bookings.length
-                }
-            });
-        }
-
-        bookings.splice(meetingIndex, 1);
-        await meetingRef.update({ bookings });
-
-        res.status(200).json({
-            success: true,
-            message: 'Meeting deleted successfully',
-            data: {
-                userId,
-                meetingIndex,
-                remainingMeetings: bookings.length
+        
+        const meetingData = meetingDoc.data();
+        
+        // Delete the meeting
+        await meetingRef.delete();
+        
+        // Log meeting deletion
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.MEETING,
+            userId: userId,
+            resourceId: meetingId,
+            details: {
+                title: meetingData.title,
+                date: meetingData.date
             }
         });
+        
+        // Return success
+        res.status(200).send({ 
+            message: 'Meeting deleted successfully',
+            deletedMeetingId: meetingId
+        });
     } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: 'Error deleting meeting',
-            error: {
-                type: error.name,
-                description: error.message
+        // Log error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.MEETING,
+            userId: req.params.userId,
+            resourceId: req.params.meetingId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_meeting'
             }
+        });
+        
+        console.error('Error deleting meeting:', error);
+        res.status(500).send({ 
+            message: 'Error deleting meeting',
+            error: error.message 
         });
     }
 };
 
 exports.sendMeetingInvite = async (req, res) => {
+    console.log('🗓️ SEND MEETING INVITE CALLED', {
+        body: req.body,
+        params: req.params,
+        user: req.user
+    });
+    
     try {
         const userId = req.user.uid;
         const {
@@ -376,6 +376,25 @@ exports.sendMeetingInvite = async (req, res) => {
             await meetingRef.set({
                 bookings: [newMeeting]
             });
+        }
+        
+        // Log meeting creation/invitation
+        console.log('📊 About to log meeting invitation');
+        try {
+            await logActivity({
+                action: ACTIONS.CREATE,
+                resource: RESOURCES.MEETING,
+                userId: userId,
+                details: {
+                    title,
+                    date: startDateTime,
+                    attendeeCount: attendees.length,
+                    type: 'invitation'
+                }
+            });
+            console.log('✅ Successfully logged meeting invitation');
+        } catch (logError) {
+            console.error('❌ Failed to log meeting invitation:', logError);
         }
         
         res.status(200).json({

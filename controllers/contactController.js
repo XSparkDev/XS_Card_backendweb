@@ -1,6 +1,7 @@
 const { db, admin } = require('../firebase.js');
 const { transporter, sendMailWithStatus } = require('../public/Utils/emailService');
 const { formatDate } = require('../utils/dateFormatter');
+const { logActivity, ACTIONS, RESOURCES } = require('../utils/logger');
 
 // Add constant for free plan limit
 const FREE_PLAN_CONTACT_LIMIT = 3;
@@ -146,15 +147,13 @@ exports.addContact = async (req, res) => {
 exports.saveContactInfo = async (req, res) => {
     const { userId, contactInfo } = req.body;
     
-    // Detailed logging
-    console.log('Save Contact Info called - Public endpoint');
-    console.log('Raw request body:', JSON.stringify(req.body, null, 2));
+    // Additional logging at the start
+    console.log('Save contact info request received:', { userId, contactInfo });
     
-    // Validate required fields only
     if (!userId || !contactInfo) {
         return res.status(400).send({ 
             success: false,
-            message: 'User ID and contact info are required' 
+            message: 'User ID and contact info are required'
         });
     }
 
@@ -225,7 +224,7 @@ exports.saveContactInfo = async (req, res) => {
         // Send email notification if user has email
         if (userData.email) {
             const mailOptions = {
-                from: process.env.EMAIL_USER_XSPARK,
+                from: process.env.EMAIL_USER,
                 to: userData.email,
                 subject: 'Someone Saved Your Contact Information',
                 html: `
@@ -254,6 +253,20 @@ exports.saveContactInfo = async (req, res) => {
             }
         }
 
+        // Log successful contact save - use await directly
+        console.log('About to log contact creation activity');
+        await logActivity({
+            action: ACTIONS.CREATE,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            resourceId: contactsRef.id,
+            details: {
+                contactName: `${contactInfo.name} ${contactInfo.surname}`,
+                contactCount: existingContacts.length,
+                plan: userData.plan
+            }
+        });
+
         // Make sure we're sending a success flag in the response for the frontend
         res.status(200).send({ 
             success: true,
@@ -269,11 +282,23 @@ exports.saveContactInfo = async (req, res) => {
                 'unlimited'
         });
     } catch (error) {
-        console.error('Error saving contact:', error);
-        res.status(500).json({
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'save_contact'
+            }
+        });
+        
+        console.error('Error saving contact info:', error);
+        res.status(500).send({ 
             success: false,
-            message: 'Error saving contact information',
-            error: error.message
+            message: 'Failed to save contact information',
+            error: error.message 
         });
     }
 };
@@ -329,11 +354,37 @@ exports.deleteContact = async (req, res) => {
         }
 
         await contactRef.delete();
+        
+        // Log successful contact list deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_list',
+                contactCount: doc.data().contactList.length
+            }
+        });
+        
         res.status(200).send({ 
             message: 'Contact list deleted successfully',
             deletedContactId: id
         });
     } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_list'
+            }
+        });
+        
         console.error('Delete contact error:', error);
         res.status(500).send({ 
             message: 'Failed to delete contact list',
@@ -372,10 +423,25 @@ exports.deleteContactFromList = async (req, res) => {
             return res.status(400).send({ message: 'Contact index out of range' });
         }
 
+        const deletedContact = currentContacts[contactIndex];
         currentContacts.splice(contactIndex, 1);
 
         await contactRef.update({
             contactList: currentContacts // Note: using contactList, not contactsList
+        });
+
+        // Log successful individual contact deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex,
+                contactName: deletedContact.name ? `${deletedContact.name} ${deletedContact.surname || ''}` : 'unnamed',
+                remainingContacts: currentContacts.length
+            }
         });
 
         console.log('Contact deleted successfully');
@@ -384,6 +450,20 @@ exports.deleteContactFromList = async (req, res) => {
             remainingContacts: currentContacts.length
         });
     } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex
+            }
+        });
+        
         console.error('Delete contact error:', error);
         res.status(500).send({ 
             message: 'Failed to delete contact',
