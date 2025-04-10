@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cancel Subscription - XSCard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #FF4B6E;
+            --secondary-color: #1B2B5B;
+            --warning-color: #ffc107;
+            --dark-text: #333;
+            --light-text: #666;
+            --lighter-text: #888;
+            --border-color: #e9e9e9;
+            --white: #FFFFFF;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: var(--secondary-color);
+            color: var(--dark-text);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .container {
+            width: 90%;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .icon-container {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(255, 193, 7, 0.1);
+            border-radius: 50%;
+        }
+        
+        .warning-icon {
+            color: var(--warning-color);
+            font-size: 40px;
+        }
+        
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--secondary-color);
+        }
+        
+        p {
+            margin-bottom: 20px;
+            color: var(--light-text);
+            font-size: 16px;
+        }
+        
+        .auth-message {
+            font-size: 14px;
+            padding: 15px;
+            margin-bottom: 20px;
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            border-radius: 4px;
+            color: #856404;
+            display: none;
+        }
+        
+        .success-message {
+            font-size: 16px;
+            padding: 15px;
+            margin: 20px 0;
+            background-color: rgba(40, 167, 69, 0.1);
+            border: 1px solid rgba(40, 167, 69, 0.2);
+            border-radius: 4px;
+            color: #155724;
+            display: none;
+        }
+        
+        .error-message {
+            font-size: 16px;
+            padding: 15px;
+            margin: 20px 0;
+            background-color: rgba(220, 53, 69, 0.1);
+            border: 1px solid rgba(220, 53, 69, 0.2);
+            border-radius: 4px;
+            color: #721c24;
+            display: none;
+        }
+        
+        .warning-info {
+            background-color: rgba(255, 193, 7, 0.05);
+            border: 1px solid rgba(255, 193, 7, 0.2);
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        
+        .warning-info h3 {
+            color: var(--warning-color);
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        
+        .warning-info p {
+            margin-bottom: 10px;
+            font-size: 15px;
+        }
+        
+        .warning-info ul {
+            margin-left: 20px;
+            margin-bottom: 15px;
+        }
+        
+        .warning-info li {
+            margin-bottom: 8px;
+            font-size: 15px;
+        }
+        
+        .button-container {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .button {
+            display: inline-block;
+            padding: 14px 20px;
+            border-radius: 25px;
+            font-weight: bold;
+            text-decoration: none;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-align: center;
+            min-width: 200px;
+            border: none;
+        }
+        
+        .primary-button {
+            background-color: var(--primary-color);
+            color: var(--white);
+        }
+        
+        .primary-button:hover {
+            opacity: 0.9;
+        }
+        
+        .secondary-button {
+            background-color: var(--secondary-color);
+            color: var(--white);
+        }
+        
+        .secondary-button:hover {
+            opacity: 0.9;
+        }
+        
+        .outline-button {
+            background-color: transparent;
+            color: var(--secondary-color);
+            border: 1px solid var(--secondary-color);
+        }
+        
+        .outline-button:hover {
+            background-color: rgba(27, 43, 91, 0.05);
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: var(--white);
+        }
+        
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid var(--white);
+            width: 40px;
+            height: 40px;
+            margin: 0 auto 15px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 14px;
+            color: var(--white);
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px 15px;
+            }
+            
+            .card {
+                padding: 20px 15px;
+            }
+            
+            .button {
+                width: 100%;
+                padding: 12px;
+                font-size: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="loading" id="loadingIndicator">
+            <div class="spinner"></div>
+            <p>Processing your cancellation request...</p>
+        </div>
+        
+        <div id="confirmView" class="card">
+            <div class="icon-container">
+                <span class="warning-icon">!</span>
+            </div>
+            
+            <h1>Cancel Subscription</h1>
+            
+            <p>Are you sure you want to cancel your XSCard Premium subscription?</p>
+            
+            <div class="warning-info">
+                <h3>What happens when you cancel:</h3>
+                <ul>
+                    <li>Your subscription will be cancelled immediately</li>
+                    <li>You'll still have access to premium features until the end of your current billing period</li>
+                    <li>No further charges will be made to your payment method</li>
+                    <li>After your billing period ends, your account will revert to the free plan</li>
+                </ul>
+                <p><strong>Note:</strong> This action cannot be undone. You'll need to subscribe again to get premium access in the future.</p>
+            </div>
+            
+            <div class="error-message" id="errorMessage"></div>
+            
+            <div class="button-container">
+                <button onclick="cancelSubscription()" id="cancelButton" class="button primary-button">Yes, Cancel My Subscription</button>
+                <a href="/dashboard.html" class="button outline-button">No, Keep My Subscription</a>
+            </div>
+        </div>
+        
+        <div id="successView" class="card" style="display:none;">
+            <div class="icon-container" style="background-color: rgba(40, 167, 69, 0.1);">
+                <span class="warning-icon" style="color: #28a745;">✓</span>
+            </div>
+            
+            <h1>Subscription Cancelled</h1>
+            
+            <p>Your XSCard Premium subscription has been successfully cancelled.</p>
+            
+            <div class="success-message" id="successMessage" style="display: block;">
+                Your premium access will continue until the end of your current billing period. After that, your account will automatically revert to the free plan.
+            </div>
+            
+            <div class="warning-info">
+                <h3>What's next?</h3>
+                <p>You can continue to use premium features until your paid period ends. After that, you'll still have access to all your existing cards, but some premium features will be unavailable.</p>
+                <p>You can reactivate your subscription at any time from your account settings.</p>
+            </div>
+            
+            <div class="button-container">
+                <a href="/dashboard.html" class="button secondary-button">Go to Dashboard</a>
+                <a href="/pricing.html" class="button outline-button">View Pricing Options</a>
+            </div>
+        </div>
+    </div>
+    
+    <footer>
+        <p>&copy; <span id="currentYear"></span> XSCard. All Rights Reserved.</p>
+    </footer>
+    
+    <script>
+        // Set current year in footer
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+        
+        // Parse URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+        const subscriptionId = urlParams.get('id');
+        const userId = urlParams.get('userId');
+        
+        // Log parameters to console for debugging
+        console.log('URL Parameters:');
+        console.log('- token:', token);
+        console.log('- subscriptionId:', subscriptionId);
+        console.log('- userId:', userId);
+        
+        // Display error if no token
+        if (!token) {
+            document.getElementById('errorMessage').textContent = 'Missing authentication token. Please make sure you\'re using the correct cancellation link.';
+            document.getElementById('errorMessage').style.display = 'block';
+        }
+        
+        // Function to cancel the subscription - matching api.ts authentication method
+        async function cancelSubscription() {
+            try {
+                // Show loading
+                document.getElementById('loadingIndicator').style.display = 'block';
+                document.getElementById('confirmView').style.display = 'none';
+                
+                // Log what we're about to send
+                console.log('Preparing to send cancellation request with:');
+                console.log('Endpoint: /api/subscription/cancel');
+                console.log('Headers:');
+                console.log('- Content-Type: application/json');
+                console.log('- Authorization:', token);
+                console.log('Body:', JSON.stringify({
+                    subscriptionId: subscriptionId,
+                    userId: userId
+                }));
+                
+                // Try Bearer token format (the standard format)
+                const bearerToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+                console.log('Using authorization header:', bearerToken);
+                
+                // Make the API request
+                const response = await fetch('/api/subscription/cancel', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': bearerToken
+                    },
+                    body: JSON.stringify({
+                        subscriptionId: subscriptionId,
+                        userId: userId
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                console.log('Response status text:', response.statusText);
+                
+                // Hide loading
+                document.getElementById('loadingIndicator').style.display = 'none';
+                
+                if (response.ok) {
+                    // Show success view
+                    document.getElementById('successView').style.display = 'block';
+                    console.log('Cancellation successful');
+                } else {
+                    // Try to get detailed error message
+                    let errorMessage = 'Failed to cancel subscription. Please try again or contact support.';
+                    try {
+                        const data = await response.json();
+                        console.log('Error response data:', data);
+                        errorMessage = data.message || errorMessage;
+                    } catch (e) {
+                        console.error('Error parsing error response:', e);
+                    }
+                    
+                    // Show error message
+                    document.getElementById('confirmView').style.display = 'block';
+                    document.getElementById('errorMessage').textContent = errorMessage;
+                    document.getElementById('errorMessage').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Full error details:', error);
+                
+                // Hide loading and show error
+                document.getElementById('loadingIndicator').style.display = 'none';
+                document.getElementById('confirmView').style.display = 'block';
+                document.getElementById('errorMessage').textContent = error.message || 'Something went wrong. Please try again.';
+                document.getElementById('errorMessage').style.display = 'block';
+            }
+        }
+        
+        // Auto-process if there's a 'auto' parameter
+        if (urlParams.get('auto') === 'yes' && token) {
+            console.log('Auto-processing enabled, will attempt cancellation shortly');
+            // Set a small delay before auto-cancellation to allow page to render
+            setTimeout(cancelSubscription, 1000);
+        }
+    </script>
+</body>
+</html>

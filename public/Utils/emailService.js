@@ -4,12 +4,12 @@ const nodemailer = require('nodemailer');
 // Create email transport configuration with better timeout and connection settings
 const createTransporter = () => {
   return nodemailer.createTransport({
-    host: process.env.EMAIL_HOST_XSPARK,
-    port: parseInt(process.env.EMAIL_SMTP_PORT_XSPARK),
+    host: process.env.EMAIL_HOST,
+    port: parseInt(process.env.EMAIL_SMTP_PORT),
     secure: true,
     auth: {
-      user: process.env.EMAIL_USER_XSPARK,
-      pass: process.env.EMAIL_PASSWORD_XSPARK
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASSWORD
     },
     tls: {
       rejectUnauthorized: false, // Accept self-signed certificates
@@ -41,8 +41,8 @@ const verifyTransporter = () => {
           message: error.message,
           code: error.code,
           command: error.command,
-          host: process.env.EMAIL_HOST_XSPARK,
-          port: process.env.EMAIL_SMTP_PORT_XSPARK
+          host: process.env.EMAIL_HOST,
+          port: process.env.EMAIL_SMTP_PORT
         });
         resolve(false);
       } else {
@@ -67,7 +67,7 @@ const sendMailWithStatus = async (mailOptions) => {
     if (!mailOptions.from || typeof mailOptions.from === 'string') {
       mailOptions.from = {
         name: mailOptions.from?.name || process.env.EMAIL_FROM_NAME || 'XS Card',
-        address: mailOptions.from?.address || process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER_XSPARK
+        address: mailOptions.from?.address || process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER
       };
     }
     

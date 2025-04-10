@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription Failed - XSCard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #FF4B6E;
+            --secondary-color: #1B2B5B;
+            --error-color: #dc3545;
+            --dark-text: #333;
+            --light-text: #666;
+            --lighter-text: #888;
+            --border-color: #e9e9e9;
+            --background-light: var(--white);
+            --white: #FFFFFF;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: var(--secondary-color);
+            color: var(--dark-text);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .container {
+            width: 90%;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .icon-container {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(220, 53, 69, 0.1);
+            border-radius: 50%;
+        }
+        
+        .error-icon {
+            color: var(--error-color);
+            font-size: 40px;
+        }
+        
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--error-color);
+        }
+        
+        p {
+            margin-bottom: 20px;
+            color: var(--light-text);
+            font-size: 16px;
+        }
+        
+        .auth-message {
+            font-size: 14px;
+            padding: 15px;
+            margin-bottom: 20px;
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            border-radius: 4px;
+            color: #856404;
+            display: none;
+        }
+        
+        .button-container {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .button {
+            display: inline-block;
+            padding: 14px 20px;
+            border-radius: 25px;
+            font-weight: bold;
+            text-decoration: none;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-align: center;
+            min-width: 200px;
+        }
+        
+        .primary-button {
+            background-color: var(--secondary-color);
+            color: var(--white);
+            border: none;
+        }
+        
+        .primary-button:hover {
+            opacity: 0.9;
+        }
+        
+        .secondary-button {
+            background-color: transparent;
+            color: var(--secondary-color);
+            border: 1px solid var(--secondary-color);
+        }
+        
+        .secondary-button:hover {
+            background-color: rgba(27, 43, 91, 0.05);
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 14px;
+            color: var(--lighter-text);
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px 15px;
+            }
+            
+            .card {
+                padding: 20px 15px;
+            }
+            
+            .button {
+                width: 100%;
+                padding: 12px;
+                font-size: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card" id="mainContent">
+            <div class="icon-container">
+                <span class="error-icon">✕</span>
+            </div>
+            
+            <h1>Subscription Failed</h1>
+            
+            <p>We're sorry, but we couldn't process your subscription payment at this time.</p>
+            
+            <div class="details">
+                <p>This could be due to:</p>
+                <ul style="text-align: left; padding-left: 40px; margin-bottom: 20px;">
+                    <li>Insufficient funds in your account</li>
+                    <li>Card issues (expired card, declining transaction)</li>
+                    <li>Verification problems with your payment method</li>
+                    <li>A temporary issue with our payment system</li>
+                </ul>
+                <p>You can try again or contact our support team for assistance.</p>
+            </div>
+            
+            <div class="button-container">
+                <a href="/pricing.html" class="button primary-button">Try Again</a>
+                <a href="/support.html" class="button secondary-button">Contact Support</a>
+                <a href="/dashboard.html" class="button secondary-button" id="dashboardButton">Return to Dashboard</a>
+            </div>
+        </div>
+    </div>
+    
+    <footer>
+        <p>&copy; <span id="currentYear"></span> XSCard. All Rights Reserved.</p>
+    </footer>
+    
+    <script>
+        // Set current year in footer
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+        
+        // Function to return to dashboard or previous page
+        function goBack() {
+            if (document.referrer && document.referrer.includes(window.location.hostname)) {
+                window.history.back();
+            } else {
+                window.location.href = '/dashboard.html';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -126,7 +126,7 @@ app.post('/AddContact', async (req, res) => {
         // Send email notification if user has email
         if (userData.email) {
             const mailOptions = {
-                from: process.env.EMAIL_USER_XSPARK,
+                from: process.env.EMAIL_USER,
                 to: userData.email,
                 subject: 'Someone Saved Your Contact Information',
                 html: `
@@ -217,7 +217,7 @@ app.post('/saveContact', async (req, res) => {
 
         if (userData && userData.email) {
             const mailOptions = {
-                from: process.env.EMAIL_USER_XSPARK,
+                from: process.env.EMAIL_USER,
                 to: userData.email,
                 subject: 'Someone Saved Your Contact Information',
                 html: `
@@ -538,6 +538,11 @@ app.use((error, req, res, next) => {
             details: error.details || error.toString()
         }
     });
+});
+
+const { testLogging } = require('./utils/logger');
+testLogging().then(success => {
+  console.log('Test logging result:', success);
 });
 
 app.listen(port, () => console.log(`Server has started on port: ${port}`));
