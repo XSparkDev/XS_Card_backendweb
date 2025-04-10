@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Cancelled - XSCard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #FF4B6E;
+            --secondary-color: #1B2B5B;
+            --warning-color: #ffc107;
+            --dark-text: #333;
+            --light-text: #666;
+            --lighter-text: #888;
+            --border-color: #e9e9e9;
+            --white: #FFFFFF;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: var(--secondary-color);
+            color: var(--dark-text);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .container {
+            width: 90%;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .icon-container {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(255, 75, 110, 0.1);
+            border-radius: 50%;
+        }
+        
+        .cancel-icon {
+            color: var(--primary-color);
+            font-size: 40px;
+        }
+        
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--secondary-color);
+        }
+        
+        p {
+            margin-bottom: 20px;
+            color: var(--light-text);
+            font-size: 16px;
+        }
+        
+        .info-box {
+            background-color: rgba(27, 43, 91, 0.05);
+            border: 1px solid rgba(27, 43, 91, 0.1);
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        
+        .info-box h3 {
+            color: var(--secondary-color);
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        
+        .info-box p {
+            margin-bottom: 10px;
+            font-size: 15px;
+        }
+        
+        .button-container {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .button {
+            display: inline-block;
+            padding: 14px 20px;
+            border-radius: 25px;
+            font-weight: bold;
+            text-decoration: none;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-align: center;
+            min-width: 200px;
+            border: none;
+        }
+        
+        .primary-button {
+            background-color: var(--primary-color);
+            color: var(--white);
+        }
+        
+        .primary-button:hover {
+            opacity: 0.9;
+        }
+        
+        .secondary-button {
+            background-color: var(--secondary-color);
+            color: var(--white);
+        }
+        
+        .secondary-button:hover {
+            opacity: 0.9;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 14px;
+            color: var(--white);
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px 15px;
+            }
+            
+            .card {
+                padding: 20px 15px;
+            }
+            
+            .button {
+                width: 100%;
+                padding: 12px;
+                font-size: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="icon-container">
+                <span class="cancel-icon">✕</span>
+            </div>
+            
+            <h1>Payment Cancelled</h1>
+            
+            <p>Your payment process has been cancelled.</p>
+            
+            <div class="info-box">
+                <h3>What happens next?</h3>
+                <p>No charges have been made to your account.</p>
+                <p>You can try again later or choose a different payment method.</p>
+                <p>If you're experiencing any issues with the payment process, please contact our support team.</p>
+            </div>
+            
+            <div class="button-container">
+                <a href="/queries.html" class="button primary-button">Contact Support</a>
+            </div>
+        </div>
+    </div>
+    
+    <footer>
+        <p>&copy; <span id="currentYear"></span> XSCard. All Rights Reserved.</p>
+    </footer>
+    
+    <script>
+        // Set current year in footer
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>
