@@ -10,7 +10,7 @@ const SUBSCRIPTION_PLANS = {
         id: 'MONTHLY_PLAN',
         name: 'Monthly Subscription',
         amount: 159.99, // in ZAR
-        planCode: 'PLN_ons9nxls439sn76',
+        planCode: 'PLN_25xliarx7epm9ct',
         interval: 'monthly',
         description: 'XS Card Monthly Subscription'
     },
@@ -18,7 +18,7 @@ const SUBSCRIPTION_PLANS = {
         id: 'ANNUAL_PLAN',
         name: 'Annual Subscription',
         amount: 1800.00, // in ZAR
-        planCode: 'PLN_x5scofzvsj4sgeo',
+        planCode: 'PLN_kzb7lj21vrehzeq',
         interval: 'annually',
         description: 'XS Card Annual Subscription'
     }

@@ -202,37 +202,63 @@ exports.updateMeeting = async (req, res) => {
 
 exports.deleteMeeting = async (req, res) => {
     try {
-        const { userId, meetingId } = req.params;
+        const { userId, meetingIndex } = req.params;
+        const index = parseInt(meetingIndex, 10);
         
-        // Get meeting data for logging before deletion
-        const meetingRef = db.collection('meetings').doc(meetingId);
+        if (isNaN(index)) {
+            return res.status(400).send({ 
+                message: 'Invalid meeting index',
+                error: 'Meeting index must be a number' 
+            });
+        }
+        
+        // Get the user's meetings document
+        const meetingRef = db.collection('meetings').doc(userId);
         const meetingDoc = await meetingRef.get();
         
         if (!meetingDoc.exists) {
-            return res.status(404).send({ message: 'Meeting not found' });
+            return res.status(404).send({ message: 'No meetings found for this user' });
         }
         
-        const meetingData = meetingDoc.data();
+        const meetingsData = meetingDoc.data();
         
-        // Delete the meeting
-        await meetingRef.delete();
+        if (!meetingsData.bookings || !Array.isArray(meetingsData.bookings)) {
+            return res.status(404).send({ message: 'No meetings found for this user' });
+        }
+        
+        if (index < 0 || index >= meetingsData.bookings.length) {
+            return res.status(404).send({ message: 'Meeting index out of bounds' });
+        }
+        
+        // Get the meeting to delete for logging purposes
+        const deletedMeeting = meetingsData.bookings[index];
+        
+        // Remove the meeting from the array
+        meetingsData.bookings.splice(index, 1);
+        
+        // Update the document with the modified array
+        await meetingRef.update({
+            bookings: meetingsData.bookings
+        });
         
         // Log meeting deletion
         await logActivity({
             action: ACTIONS.DELETE,
             resource: RESOURCES.MEETING,
             userId: userId,
-            resourceId: meetingId,
+            resourceId: `${userId}-meeting-${index}`,
             details: {
-                title: meetingData.title,
-                date: meetingData.date
+                title: deletedMeeting.title || 'Untitled Meeting',
+                date: deletedMeeting.meetingWhen || 'Unknown date',
+                method: 'array_splice'
             }
         });
         
         // Return success
         res.status(200).send({ 
             message: 'Meeting deleted successfully',
-            deletedMeetingId: meetingId
+            deletedMeetingIndex: index,
+            remainingMeetings: meetingsData.bookings.length
         });
     } catch (error) {
         // Log error
@@ -240,7 +266,6 @@ exports.deleteMeeting = async (req, res) => {
             action: ACTIONS.ERROR,
             resource: RESOURCES.MEETING,
             userId: req.params.userId,
-            resourceId: req.params.meetingId,
             status: 'error',
             details: {
                 error: error.message,

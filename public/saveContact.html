@@ -184,6 +184,63 @@
                 margin: 0 auto;
             }
         }
+
+        .success-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255,255,255,0.9);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            z-index: 100;
+        }
+
+        .success-icon {
+            font-size: 64px;
+            color: var(--secondary);
+            margin-bottom: 20px;
+        }
+
+        .success-message {
+            font-size: 20px;
+            color: var(--secondary);
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+
+        .success-instructions {
+            font-size: 16px;
+            color: #666;
+            text-align: center;
+            margin-bottom: 25px;
+            max-width: 300px;
+        }
+
+        .direct-save-btn {
+            background-color: var(--secondary);
+            color: var(--white);
+            padding: 14px 20px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            width: 100%;
+            max-width: 300px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            -webkit-appearance: none;
+            appearance: none;
+        }
     </style>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 </head>
@@ -223,6 +280,17 @@
                 Save Contact
             </button>
         </div>
+    </div>
+
+    <!-- Add success overlay -->
+    <div id="successOverlay" class="success-overlay">
+        <span class="material-icons success-icon">check_circle</span>
+        <p class="success-message">Contact saved to database!</p>
+        <p class="success-instructions" id="saveInstructions">Tap the button below to add this contact to your phone</p>
+        <button id="saveToPhoneBtn" class="direct-save-btn">
+            <span class="material-icons">person_add</span>
+            Add to Contacts
+        </button>
     </div>
 
     <script>
@@ -337,7 +405,7 @@
             const savedToDb = await saveContactToDatabase();
             if (!savedToDb) return;
 
-            // Create and download vCard
+            // Create vCard data but don't download it yet
             const vCardData = `BEGIN:VCARD
 VERSION:3.0
 FN:${userData.name} ${userData.surname}
@@ -347,16 +415,88 @@ ORG:${userData.company}
 TITLE:${userData.occupation}
 END:VCARD`;
 
-            const blob = new Blob([vCardData.trim()], { type: 'text/vcard' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = `${userData.name}_${userData.surname}.vcf`;
-            link.click();
+            // Show success overlay
+            const overlay = document.getElementById('successOverlay');
+            overlay.style.display = 'flex';
 
-            alert('Contact saved successfully!');
-            setTimeout(() => {
-                window.close();
-            }, 2000);
+            // Change the success message to be more personal
+            document.querySelector('.success-message').textContent = 
+                `You've made a connection with ${userData.name}!`;
+
+            // Set up the save to phone button
+            const saveButton = document.getElementById('saveToPhoneBtn');
+            
+            // Different instructions based on device
+            const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            const android = /Android/.test(navigator.userAgent);
+            
+            if (iOS) {
+                document.getElementById('saveInstructions').textContent = 
+                    'Tap the button and open with the Contacts app to save';
+            } else if (android) {
+                document.getElementById('saveInstructions').textContent = 
+                    'Tap the button to download and import to your Contacts';
+            }
+            
+            // Set up the button click handler - using a different approach to avoid security warnings
+            saveButton.addEventListener('click', function() {
+                if (this.dataset.downloaded) {
+                    // If already downloaded, close the window
+                    window.close();
+                    return;
+                }
+                
+                // Mark as downloaded
+                this.dataset.downloaded = 'true';
+                
+                try {
+                    // Try the safer approach first - create a direct link with data URI
+                    const vCardContent = encodeURIComponent(`BEGIN:VCARD
+VERSION:3.0
+FN:${userData.name} ${userData.surname}
+EMAIL:${userData.email}
+TEL;TYPE=CELL:${userData.phone || ''}
+ORG:${userData.company}
+TITLE:${userData.occupation}
+END:VCARD`);
+                    
+                    // Create an anchor with a data URI (more likely to bypass security warnings)
+                    const dataUri = `data:text/vcard;charset=utf-8,${vCardContent}`;
+                    const directLink = document.createElement('a');
+                    directLink.href = dataUri;
+                    directLink.download = `${userData.name}_${userData.surname}.vcf`;
+                    directLink.style.display = 'none';
+                    document.body.appendChild(directLink);
+                    directLink.click();
+                    document.body.removeChild(directLink);
+                } catch (e) {
+                    console.error('Error with data URI approach:', e);
+                    
+                    // Fallback to the traditional blob approach if the data URI fails
+                    const vCardData = `BEGIN:VCARD
+VERSION:3.0
+FN:${userData.name} ${userData.surname}
+EMAIL:${userData.email}
+TEL;TYPE=CELL:${userData.phone || ''}
+ORG:${userData.company}
+TITLE:${userData.occupation}
+END:VCARD`;
+                    
+                    const blob = new Blob([vCardData.trim()], { type: 'text/vcard' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `${userData.name}_${userData.surname}.vcf`;
+                    link.click();
+                }
+                
+                // Change button text to Done
+                this.innerHTML = '<span class="material-icons">done</span> Done';
+                this.style.backgroundColor = '#4CAF50';
+                
+                // Change instructions
+                document.getElementById('saveInstructions').textContent = 
+                    'Contact downloaded. Click "Done" when you\'re finished.';
+            });
         }
 
         // Load user data when page loads
