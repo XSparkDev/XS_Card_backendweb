@@ -5,6 +5,7 @@ const path = require('path');
 const axios = require('axios');
 const config = require('../config/config');
 const { formatDate } = require('../utils/dateFormatter');
+const { logActivity, ACTIONS, RESOURCES } = require('../utils/logger');
 
 // Configure storage
 const storage = multer.diskStorage({
@@ -179,6 +180,25 @@ exports.addCard = async (req, res) => {
             });
         }
         
+        // Ensure this runs before sending the response
+        // Add try/catch to prevent errors from breaking the response
+        try {
+            await logActivity({
+                action: ACTIONS.CREATE,
+                resource: RESOURCES.CARD,
+                userId: userId,
+                resourceId: cardRef.id,
+                details: {
+                    cardType: title || 'Business Card',
+                    company: company,
+                    colorScheme: '#1B2B5B'
+                }
+            });
+            console.log('Card creation logged successfully');
+        } catch (logError) {
+            console.error('Error logging card creation:', logError);
+        }
+        
         // Format the response
         const responseCard = {
             ...newCard,
@@ -192,6 +212,23 @@ exports.addCard = async (req, res) => {
         });
     } catch (error) {
         console.error('Error in addCard:', error); // Debug log
+        
+        // Log error activity - use try/catch to ensure error handling continues
+        try {
+            await logActivity({
+                action: ACTIONS.ERROR,
+                resource: RESOURCES.CARD,
+                userId: req.user?.uid || 'unknown',
+                status: 'error',
+                details: {
+                    error: error.message,
+                    operation: 'create_card'
+                }
+            });
+        } catch (logError) {
+            console.error('Failed to log error:', logError);
+        }
+        
         res.status(500).json({
             success: false,
             message: 'Error adding card',
@@ -245,12 +282,39 @@ exports.updateCard = async (req, res) => {
             cards: updatedCards
         });
 
+        // Log card update activity
+        await logActivity({
+            action: ACTIONS.UPDATE,
+            resource: RESOURCES.CARD,
+            userId: userId,
+            resourceId: cardRef.id,
+            details: {
+                cardIndex: parseInt(cardIndex),
+                updatedFields: Object.keys(updateData),
+                company: updatedCards[cardIndex].company
+            }
+        });
+
         res.status(200).send({ 
             message: 'Card updated successfully',
             updatedCard: updatedCards[cardIndex]
         });
     } catch (error) {
         console.error('Update card error:', error);
+        
+        // Log error activity
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CARD,
+            userId: userId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'update_card',
+                cardIndex: cardIndex
+            }
+        });
+        
         res.status(500).send({
             message: 'Failed to update card',
             error: error.message
@@ -314,6 +378,19 @@ exports.deleteCard = async (req, res) => {
             cards: updatedCards
         });
 
+        // Log card deletion activity
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CARD,
+            userId: userId,
+            resourceId: cardRef.id,
+            details: {
+                cardIndex: parsedIndex,
+                remainingCards: updatedCards.length,
+                deletedCardName: cardsData.cards[parsedIndex]?.name || 'Unknown'
+            }
+        });
+
         // Format the cards before sending
         const formattedCards = updatedCards.map(card => ({
             ...card,
@@ -336,6 +413,20 @@ exports.deleteCard = async (req, res) => {
         return res.status(200).json(response);
     } catch (error) {
         console.error('Delete card error:', error);
+        
+        // Log error activity
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CARD,
+            userId: userId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_card',
+                cardIndex: cardIndex
+            }
+        });
+        
         return res.status(500).json({
             success: false,
             message: 'Failed to delete card',
@@ -376,9 +467,24 @@ exports.generateQR = async (req, res) => {
             }
         });
 
+        // Removed QR code generation logging - no need to track this high-volume action
+
         res.setHeader('Content-Type', 'image/png');
         res.status(200).send(qrCodeBuffer);
     } catch (error) {
+        // Keep error logging for debugging purposes
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.QR_CODE,
+            userId: userId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'generate_qr',
+                cardIndex: cardIndex
+            }
+        });
+        
         sendError(res, error.message === 'Unauthorized access' ? 403 : 500, 
             'Failed to generate QR code', error);
     }
@@ -422,12 +528,39 @@ exports.updateCardColor = async (req, res) => {
             cards: updatedCards
         });
 
+        // Log card color update
+        await logActivity({
+            action: ACTIONS.UPDATE,
+            resource: RESOURCES.CARD,
+            userId: userId,
+            resourceId: cardRef.id,
+            details: {
+                cardIndex: parseInt(cardIndex),
+                updateType: 'color',
+                oldColor: cardsData.cards[cardIndex].colorScheme,
+                newColor: color
+            }
+        });
+
         res.status(200).send({ 
             message: 'Card color updated successfully',
             color,
             cardIndex: cardIndex
         });
     } catch (error) {
+        // Log error activity
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CARD,
+            userId: userId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'update_card_color',
+                cardIndex: cardIndex
+            }
+        });
+        
         sendError(res, 500, 'Failed to update card color', error);
     }
 };
@@ -468,6 +601,7 @@ exports.createWalletPass = async (req, res) => {
         // Check if we should skip images
         const isLocalIp = /^(localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(config.PASSCREATOR_PUBLIC_URL);
         const shouldSkipImages = skipImages === 'true' || isLocalIp;
+        const environment = isLocalIp ? 'development' : 'production';
         
         // Prepare pass data
         const passData = {
@@ -506,6 +640,23 @@ exports.createWalletPass = async (req, res) => {
             identifier: response.data.identifier
         });
 
+        // Enhanced wallet pass creation logging
+        await logActivity({
+            action: ACTIONS.CREATE,
+            resource: RESOURCES.WALLET_PASS,
+            userId: userId,
+            resourceId: response.data.identifier || `${userId}_${cardIndex}`,
+            details: {
+                cardIndex: parseInt(cardIndex),
+                passUri: response.data.uri,
+                imagesIncluded: !shouldSkipImages,
+                environment: environment,
+                imageSkipReason: skipImages === 'true' ? 'explicit_skip' : (isLocalIp ? 'local_environment' : null),
+                cardName: card.name,
+                company: card.company
+            }
+        });
+
         res.status(200).send({
             message: 'Wallet pass created successfully',
             passUri: response.data.uri,
@@ -522,6 +673,21 @@ exports.createWalletPass = async (req, res) => {
             message: error.message,
             response: error.response?.data,
             config: error.config
+        });
+
+        // Enhanced error logging
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.WALLET_PASS,
+            userId: userId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'create_wallet_pass',
+                cardIndex: cardIndex,
+                environment: /^(localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(config.PASSCREATOR_PUBLIC_URL) ? 'development' : 'production',
+                errorResponse: error.response?.data?.ErrorMessage || 'Unknown error'
+            }
         });
 
         // Check if error is due to image access issue

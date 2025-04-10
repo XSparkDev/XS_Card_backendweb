@@ -14,7 +14,8 @@ const ACTIONS = {
   APPLY: 'apply',
   INITIALIZE: 'initialize',
   CANCEL: 'cancel',
-  ERROR: 'error'
+  ERROR: 'error',
+  GENERATE: 'generate'
 };
 
 // Resource types
@@ -30,7 +31,9 @@ const RESOURCES = {
   SUBSCRIPTION: 'subscription',
   PAYMENT: 'payment',
   EMAIL: 'email',
-  SYSTEM: 'system'
+  SYSTEM: 'system',
+  WALLET_PASS: 'wallet_pass',
+  QR_CODE: 'qr_code'
 };
 
 /**
@@ -53,13 +56,12 @@ const logActivity = async (data) => {
     
     console.log('💾 LOGGING ACTIVITY:', { 
       action: data.action, 
-      resource: data.resource,
+      resource: data.resource, 
       userId: data.userId
     });
     
     // Format timestamp
     const timestamp = data.timestamp || admin.firestore.Timestamp.now();
-    
     // Create base log entry with required fields
     const logEntry = {
       timestamp,
@@ -77,7 +79,6 @@ const logActivity = async (data) => {
     if (data.departmentId) logEntry.departmentId = data.departmentId;
     
     console.log('Log entry object before saving:', JSON.stringify(logEntry));
-    
     // Write to Firestore with explicit error logging
     try {
       const docRef = await db.collection('activityLogs').add(logEntry);
@@ -97,7 +98,6 @@ const logActivity = async (data) => {
 // Test function to verify logging works
 const testLogging = async () => {
   console.log('🧪 Running test log...');
-  
   try {
     console.log('Testing Firestore connection...');
     const testDoc = await db.collection('_test_').doc('connection_test').set({
@@ -130,4 +130,4 @@ module.exports = {
   ACTIONS,
   RESOURCES,
   testLogging
-}; 
+};
