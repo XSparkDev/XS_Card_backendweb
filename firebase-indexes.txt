@@ -1,0 +1,106 @@
+# Required Firestore Indexes for XS Card Backend
+
+The activity log search functionality requires several composite indexes to function properly.
+Follow these steps to create the necessary indexes:
+
+1. Open the Firestore Console
+   Go to: https://console.firebase.google.com/project/xscard-addd4/firestore/indexes
+
+2. Create the following composite indexes for the "activityLogs" collection:
+
+   ## For action-based queries:
+   - Fields:
+     * action (Ascending)
+     * timestamp (Descending)
+   - Collection Group: activityLogs
+   - Query scope: Collection
+
+   ## For resource-based queries: 
+   - Fields:
+     * resource (Ascending)
+     * timestamp (Descending)
+   - Collection Group: activityLogs
+   - Query scope: Collection
+
+   ## For user-based queries:
+   - Fields:
+     * userId (Ascending)
+     * timestamp (Descending)
+   - Collection Group: activityLogs
+   - Query scope: Collection
+
+   ## For action+resource filters:
+   - Fields:
+     * action (Ascending)
+     * resource (Ascending) 
+     * timestamp (Descending)
+   - Collection Group: activityLogs
+   - Query scope: Collection
+
+   ## For error queries:
+   - Fields:
+     * action (Ascending) (where action == 'error')
+     * timestamp (Descending)
+   - Collection Group: activityLogs
+   - Query scope: Collection
+
+   ## URGENT: Index Required for /logs/action/login
+
+   You're currently seeing this error because the query is trying to filter by `action='login'` and sort by `timestamp` at the same time, which requires a composite index.
+
+   Steps to fix:
+
+   1. Open this exact URL in your browser:
+      https://console.firebase.google.com/v1/r/project/xscard-addd4/firestore/indexes?create_composite=ClFwcm9qZWN0cy94c2NhcmQtYWRkZDQvZGF0YWJhc2VzLyhkZWZhdWx0KS9jb2xsZWN0aW9uR3JvdXBzL2FjdGl2aXR5TG9ncy9pbmRleGVzL18QARoKCgZhY3Rpb24QARoNCgl0aW1lc3RhbXAQAhoMCghfX25hbWVfXxAC
+
+   2. This will open a pre-filled form to create the required index. Click "CREATE INDEX" to create it.
+
+   3. Wait 3-5 minutes for the index to be built. Firebase will show status as "Building" during this time.
+
+   4. Once the index status changes to "Ready", your query will start working.
+
+   ## URGENT: Index Required for /logs/resource/user
+
+   You're currently seeing this error because the query is trying to filter by `resource='user'` and sort by `timestamp` at the same time, which requires a composite index.
+
+   Steps to fix:
+
+   1. Open this exact URL in your browser:
+      https://console.firebase.google.com/v1/r/project/xscard-addd4/firestore/indexes?create_composite=ClFwcm9qZWN0cy94c2NhcmQtYWRkZDQvZGF0YWJhc2VzLyhkZWZhdWx0KS9jb2xsZWN0aW9uR3JvdXBzL2FjdGl2aXR5TG9ncy9pbmRleGVzL18QARoMCghyZXNvdXJjZRABGg0KCXRpbWVzdGFtcBACGgwKCF9fbmFtZV9fEAI
+
+   2. This will open a pre-filled form to create the required index. Click "CREATE INDEX" to create it.
+
+   3. Wait 3-5 minutes for the index to be built. Firebase will show status as "Building" during this time.
+
+   4. Once the index status changes to "Ready", your query will start working.
+
+   ## URGENT: Index Required for /logs/user/{userId}
+
+   You're currently seeing this error because the query is trying to filter by `userId` and sort by `timestamp` at the same time, which requires a composite index.
+
+   Steps to fix:
+
+   1. Open this exact URL in your browser:
+      https://console.firebase.google.com/v1/r/project/xscard-addd4/firestore/indexes?create_composite=ClFwcm9qZWN0cy94c2NhcmQtYWRkZDQvZGF0YWJhc2VzLyhkZWZhdWx0KS9jb2xsZWN0aW9uR3JvdXBzL2FjdGl2aXR5TG9ncy9pbmRleGVzL18QARoKCgZ1c2VySWQQARoNCgl0aW1lc3RhbXAQAhoMCghfX25hbWVfXxAC
+
+   2. This will open a pre-filled form to create the required index. Click "CREATE INDEX" to create it.
+
+   3. Wait 3-5 minutes for the index to be built. Firebase will show status as "Building" during this time.
+
+   4. Once the index status changes to "Ready", your query will start working.
+
+3. Alternative Approach - Quick Index Creation:
+   
+   When you see an error message like:
+   
+   "The query requires an index. You can create it here: https://console.firebase.google.com/v1/r/project/xscard-addd4/firestore/indexes?create_composite=..."
+   
+   Simply click on the URL in the error message to be taken directly to the index creation page.
+
+4. Wait for Index Creation:
+   
+   After creating an index, it may take a few minutes to become active. Firebase will show
+   the status of the index as "Building" until it's ready to use.
+
+Note: These indexes are required because Firestore requires composite indexes whenever 
+you combine filtering on one field with ordering on another field in your queries.

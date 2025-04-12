@@ -1,0 +1,162 @@
+Let me go through each controller file and identify key events worth logging. I'll focus on listing out important actions from each controller without any explanations or examples.
+controllers/enterprise/cardTemplatesController.js:
+Template creation
+Template update
+Template deletion
+Template application to employee
+Default template changes
+Template retrieval (optional, possibly high volume)
+controllers/userController.js:
+User creation
+User deletion
+User update
+User login/logout
+User verification
+Profile image update
+Company logo update
+Color scheme update
+Plan upgrade
+controllers/enterprise/departmentsController.js:
+Department creation
+Department update
+Department deletion
+Employee addition to department
+Employee removal from department
+Employee update
+Employee card retrieval
+controllers/enterprise/teamsController.js:
+Team creation
+Team update
+Team deletion
+Team member addition
+Team member removal
+Team leader changes
+controllers/enterprise/exportController.js:
+Department export
+Team export
+Individual team export
+controllers/cardController.js:
+Card creation
+Card update
+Card deletion
+QR code generation
+Wallet pass creation
+Card color update
+controllers/contactController.js:
+Contact addition
+Contact update
+Contact deletion
+Contact info saving
+Contact limit reached
+controllers/meetingController.js:
+Meeting creation
+Meeting update
+Meeting deletion
+Meeting invitation sending
+Calendar event creation
+controllers/paymentController.js and controllers/subscriptionController.js:
+Payment initialization
+Payment completion
+Subscription creation
+Subscription cancellation
+Subscription status change
+Trial start/end
+Webhook reception
+Plan change
+public/Utils/emailService.js:
+Email sending success
+Email sending failure
+Email server connection issues
+Email server reconnection attempts
+server.js:
+Server startup
+Server shutdown
+Token cleanup events
+Expired trial checking
+CORS errors
+Generic 500 errors
+These are the key events worth tracking across all the files you provided.
+</think>
+Key Events Worth Logging By Controller
+1. Card Templates Controller
+Template creation
+Template update
+Template deletion
+Template application to employee
+Default template changes
+Template retrieval failures
+2. User Controller
+User creation
+User deletion
+User update
+User login/logout
+Email verification
+Profile image update
+Company logo update
+Color scheme update
+Plan upgrade
+Token blacklisting
+3. Departments Controller
+Department creation
+Department update
+Department deletion
+Employee addition
+Employee removal
+Employee update
+Team assignment changes
+4. Teams Controller
+Team creation
+Team update
+Team deletion
+Team member changes
+Team leader changes
+5. Export Controller
+Department export
+Team export
+Individual team export
+6. Card Controller
+Card creation
+Card update
+Card deletion
+QR code generation
+Wallet pass creation
+Card color update
+7. Contact Controller
+Contact addition
+Contact update
+Contact deletion
+Contact limit reached
+Contact export
+8. Meeting Controller
+Meeting creation
+Meeting update
+Meeting deletion
+Meeting invitation sending
+Calendar event creation
+9. Payment/Subscription Controllers
+Payment initialization
+Payment completion
+Subscription creation
+Subscription cancellation
+Subscription status change
+Trial start/end
+Webhook reception
+Plan change
+10. Email Service
+Email sending success
+Email sending failure
+Email server connection issues
+11. Server
+Server startup
+Server shutdown
+Token cleanup runs
+Expired trial processing
+Rate limiting triggers
+CORS violations
+Unhandled exceptions
+12. Security Events
+Authentication failures
+Access control violations
+API rate limit exceeded
+Invalid token attempts
+These events cover the critical operations across your entire application that would be valuable to track for auditing, troubleshooting, and monitoring purposes.

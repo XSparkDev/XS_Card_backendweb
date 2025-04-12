@@ -6,7 +6,7 @@ const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
 const https = require('https');
-const cors = require('cors'); // Add this line
+const cors = require('cors');
 const { db, admin } = require('./firebase.js');
 const { sendMailWithStatus } = require('./public/Utils/emailService');
 const app = express();
@@ -27,8 +27,9 @@ const cardRoutes = require('./routes/cardRoutes');
 const contactRoutes = require('./routes/contactRoutes');
 const meetingRoutes = require('./routes/meetingRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
-const subscriptionRoutes = require('./routes/subscriptionRoutes'); // Add subscription routes
-const departmentsRoutes = require('./routes/departmentsRoutes'); // Add departments routes
+const subscriptionRoutes = require('./routes/subscriptionRoutes');
+const departmentsRoutes = require('./routes/departmentsRoutes');
+const activityLogRoutes = require('./routes/activityLogRoutes');
 
 // Configure multer for file upload
 const storage = multer.diskStorage({
@@ -55,19 +56,17 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Public routes - must be before authentication middleware
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/', paymentRoutes); // Add this line before protected routes
-app.use('/', subscriptionRoutes); // Add subscription routes
+app.use('/', paymentRoutes);
+app.use('/', subscriptionRoutes);
 
 app.get('/saveContact', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'saveContact.html'));
 });
 
 // Add the AddContact endpoint directly to server.js
-// This bypasses any router or authentication middleware issues
 app.post('/AddContact', async (req, res) => {
     const { userId, contactInfo } = req.body;
     
-    // Detailed logging
     console.log('Add Contact called - Public endpoint in server.js');
     console.log('Raw request body:', JSON.stringify(req.body, null, 2));
     
@@ -79,7 +78,6 @@ app.post('/AddContact', async (req, res) => {
     }
 
     try {
-        // Get user's plan information
         const userRef = db.collection('users').doc(userId);
         const userDoc = await userRef.get();
         const userData = userDoc.data();
@@ -96,10 +94,8 @@ app.post('/AddContact', async (req, res) => {
             currentContacts = doc.data().contactList || [];
         }
 
-        // Free plan contact limit
         const FREE_PLAN_CONTACT_LIMIT = 3;
 
-        // Check if free user has reached contact limit
         if (userData.plan === 'free' && currentContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
             console.log(`Contact limit reached for free user ${userId}. Current contacts: ${currentContacts.length}`);
             return res.status(403).send({
@@ -112,7 +108,7 @@ app.post('/AddContact', async (req, res) => {
 
         const newContact = {
             ...contactInfo,
-            email: contactInfo.email || '', // Add email field with fallback
+            email: contactInfo.email || '',
             createdAt: admin.firestore.Timestamp.now()
         };
 
@@ -123,7 +119,6 @@ app.post('/AddContact', async (req, res) => {
             contactList: currentContacts
         }, { merge: true });
         
-        // Send email notification if user has email
         if (userData.email) {
             const mailOptions = {
                 from: process.env.EMAIL_USER,
@@ -156,7 +151,6 @@ app.post('/AddContact', async (req, res) => {
                 }
             } catch (emailError) {
                 console.error('Email sending error:', emailError);
-                // Continue execution even if email fails
             }
         }
         
@@ -190,14 +184,12 @@ app.post('/saveContact', async (req, res) => {
     }
 
     try {
-        // Save contact to database
         const contactsRef = db.collection('contacts').doc(userId);
         const contactsDoc = await contactsRef.get();
 
         let contactList = contactsDoc.exists ? (contactsDoc.data().contactList || []) : [];
         if (!Array.isArray(contactList)) contactList = [];
 
-        // Add new contact with Firestore Timestamp
         contactList.push({
             name: contactInfo.name,
             surname: contactInfo.surname,
@@ -210,7 +202,6 @@ app.post('/saveContact', async (req, res) => {
             contactList: contactList
         }, { merge: true });
 
-        // Send email notification
         const userRef = db.collection('users').doc(userId);
         const userDoc = await userRef.get();
         const userData = userDoc.data();
@@ -244,7 +235,6 @@ app.post('/saveContact', async (req, res) => {
             }
         }
 
-        // Send success response
         res.status(200).send({ 
             success: true,
             message: 'Contact saved successfully',
@@ -280,7 +270,6 @@ app.get('/public/cards/:id', async (req, res) => {
             return res.status(404).send({ message: 'Card not found' });
         }
 
-        // Return the specific card with user ID included
         const card = {
             id: userId,
             ...userData.cards[cardIndex]
@@ -296,13 +285,23 @@ app.get('/public/cards/:id', async (req, res) => {
     }
 });
 
+// Add a diagnostic endpoint to check if the server is working
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
 // Protected routes - after public routes
 app.use('/', userRoutes);
 app.use('/', cardRoutes);
 app.use('/', contactRoutes);
 app.use('/', meetingRoutes);
-app.use('/', departmentsRoutes); // Add departments routes
+app.use('/', departmentsRoutes);
 app.use('/', paymentRoutes);
+app.use('/', activityLogRoutes); // Mount at root instead of /api/logs
 
 // Modify the user creation route to handle file upload
 app.post('/api/users', upload.single('profileImage'), (req, res, next) => {
@@ -386,8 +385,6 @@ const checkExpiredTrials = async () => {
         const now = new Date();
         console.log(`Checking for expired trials: ${now.toISOString()}`);
         
-        // Get all trial users first, then filter in memory
-        // This avoids the need for a composite index
         const trialUsersSnapshot = await db.collection('users')
             .where('subscriptionStatus', '==', 'trial')
             .get();
@@ -397,7 +394,6 @@ const checkExpiredTrials = async () => {
             return;
         }
         
-        // Filter expired trials in memory
         const expiredTrials = trialUsersSnapshot.docs.filter(doc => {
             const data = doc.data();
             return data.trialEndDate && data.trialEndDate <= now.toISOString();
@@ -414,11 +410,9 @@ const checkExpiredTrials = async () => {
             const userId = doc.id;
             const userData = doc.data();
             
-            // Verify subscription is still valid with Paystack before converting
             let isSubscriptionValid = true;
             if (userData.subscriptionCode) {
                 try {
-                    // Check subscription status with Paystack
                     const subscriptionStatus = await verifySubscriptionStatus(userData.subscriptionCode);
                     isSubscriptionValid = subscriptionStatus === 'active';
                     
@@ -427,14 +421,12 @@ const checkExpiredTrials = async () => {
                     }
                 } catch (error) {
                     console.error(`Error verifying subscription for ${userId}:`, error);
-                    // Continue with conversion, we'll handle errors separately
                 }
             }
             
             if (isSubscriptionValid) {
                 console.log(`Converting trial to active subscription for user: ${userId}`);
                 
-                // Update user status from trial to active
                 await doc.ref.update({
                     subscriptionStatus: 'active',
                     lastUpdated: new Date().toISOString(),
@@ -442,7 +434,6 @@ const checkExpiredTrials = async () => {
                     firstBillingDate: new Date().toISOString()
                 });
                 
-                // Also update the subscription document
                 await db.collection('subscriptions').doc(userId).update({
                     status: 'active',
                     trialEndDate: new Date().toISOString(),
@@ -452,19 +443,16 @@ const checkExpiredTrials = async () => {
                 
                 console.log(`User ${userId} subscription updated from trial to active`);
             } else {
-                // User cancelled during trial
                 console.log(`Marking cancelled trial for user: ${userId}`);
                 
-                // Update user status to reflect cancellation and change plan to free
                 await doc.ref.update({
                     subscriptionStatus: 'cancelled',
-                    plan: 'free', // Change plan back to free when subscription is cancelled
+                    plan: 'free',
                     lastUpdated: new Date().toISOString(),
                     trialEndDate: new Date().toISOString(),
                     cancellationDate: new Date().toISOString()
                 });
                 
-                // Also update the subscription document
                 await db.collection('subscriptions').doc(userId).update({
                     status: 'cancelled',
                     trialEndDate: new Date().toISOString(),
@@ -480,9 +468,6 @@ const checkExpiredTrials = async () => {
     }
 };
 
-/**
- * Verify subscription status with Paystack
- */
 const verifySubscriptionStatus = async (subscriptionCode) => {
     const options = {
         hostname: 'api.paystack.co',
@@ -524,10 +509,8 @@ const verifySubscriptionStatus = async (subscriptionCode) => {
     });
 };
 
-// Run the check every minute
 setInterval(checkExpiredTrials, 60 * 1000);
 
-// Error handler
 app.use((error, req, res, next) => {
     console.error('Error:', error);
     res.status(500).send({
