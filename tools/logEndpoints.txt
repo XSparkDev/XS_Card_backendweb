@@ -1,0 +1,40 @@
+# Activity Log API Endpoint Examples
+
+## Base URL
+All endpoints start with: http://localhost:8383
+
+## Public Endpoints (No auth required)
+GET /logs/test
+GET /logs/health
+
+## Protected Endpoints (Auth required)
+# Get all logs with pagination
+GET /logs?limit=10
+
+# Get logs by action 
+GET /logs/action/login
+GET /logs/action/create
+GET /logs/action/update
+
+# Get logs by resource
+GET /logs/resource/user
+GET /logs/resource/card
+GET /logs/resource/wallet_pass
+
+# Get user history
+GET /logs/user/{userId}
+
+# Get error logs
+GET /logs/errors
+
+## Common query parameters
+- limit: Maximum number of logs to return (default 50)
+- order: Sort order (asc/desc)
+- startTime: Filter by start time (ISO format)
+- endTime: Filter by end time (ISO format)
+- userId: Filter by user ID
+- resource: Filter by resource type (when using action endpoint)
+- action: Filter by action type (when using resource endpoint)
+
+## Example with filters
+GET /logs/action/login?limit=5&resource=user&startTime=2023-06-01T00:00:00Z

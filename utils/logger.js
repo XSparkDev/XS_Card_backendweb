@@ -125,9 +125,157 @@ const testLogging = async () => {
   }
 };
 
+/**
+ * Get activity logs by action type
+ * @param {string} action - Action type from ACTIONS
+ * @param {Object} options - Query options
+ * @returns {Promise<Array>} - List of matching activity logs
+ */
+const getActivitiesByAction = async (action, options = {}) => {
+  try {
+    if (!action) {
+      throw new Error('Action parameter is required');
+    }
+    
+    // Start with basic query
+    let query = db.collection('activityLogs').where('action', '==', action);
+    
+    // Add optional filters
+    if (options.userId) {
+      query = query.where('userId', '==', options.userId);
+    }
+    
+    if (options.resource) {
+      query = query.where('resource', '==', options.resource);
+    }
+    
+    if (options.status) {
+      query = query.where('status', '==', options.status);
+    }
+    
+    // Add time range filter if provided
+    if (options.startTime) {
+      const startTimestamp = admin.firestore.Timestamp.fromDate(new Date(options.startTime));
+      query = query.where('timestamp', '>=', startTimestamp);
+    }
+    
+    if (options.endTime) {
+      const endTimestamp = admin.firestore.Timestamp.fromDate(new Date(options.endTime));
+      query = query.where('timestamp', '<=', endTimestamp);
+    }
+    
+    // Order by timestamp (default to descending - newest first)
+    const orderDirection = options.orderDirection === 'asc' ? 'asc' : 'desc';
+    query = query.orderBy('timestamp', orderDirection);
+    
+    // Apply pagination
+    const limit = options.limit && !isNaN(options.limit) ? parseInt(options.limit) : 50;
+    query = query.limit(limit);
+    
+    // Execute query
+    const snapshot = await query.get();
+    
+    // Process results
+    const activities = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      activities.push({
+        id: doc.id,
+        action: data.action,
+        resource: data.resource,
+        userId: data.userId,
+        resourceId: data.resourceId,
+        timestamp: data.timestamp?.toDate?.() || data.timestamp,
+        status: data.status,
+        details: data.details
+      });
+    });
+    
+    return activities;
+  } catch (error) {
+    console.error('Error fetching activities by action:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get activity logs by resource type
+ * @param {string} resource - Resource type from RESOURCES
+ * @param {Object} options - Query options
+ * @returns {Promise<Array>} - List of matching activity logs
+ */
+const getActivitiesByResource = async (resource, options = {}) => {
+  try {
+    if (!resource) {
+      throw new Error('Resource parameter is required');
+    }
+    
+    // Start with basic query
+    let query = db.collection('activityLogs').where('resource', '==', resource);
+    
+    // Add optional filters
+    if (options.userId) {
+      query = query.where('userId', '==', options.userId);
+    }
+    
+    if (options.action) {
+      query = query.where('action', '==', options.action);
+    }
+    
+    if (options.status) {
+      query = query.where('status', '==', options.status);
+    }
+    
+    // Add time range filter if provided
+    if (options.startTime) {
+      const startTimestamp = admin.firestore.Timestamp.fromDate(new Date(options.startTime));
+      query = query.where('timestamp', '>=', startTimestamp);
+    }
+    
+    if (options.endTime) {
+      const endTimestamp = admin.firestore.Timestamp.fromDate(new Date(options.endTime));
+      query = query.where('timestamp', '<=', endTimestamp);
+    }
+    
+    // Order by timestamp (default to descending - newest first)
+    const orderDirection = options.orderDirection === 'asc' ? 'asc' : 'desc';
+    query = query.orderBy('timestamp', orderDirection);
+    
+    // Apply limit
+    const limit = options.limit && !isNaN(options.limit) ? parseInt(options.limit) : 50;
+    query = query.limit(limit);
+    
+    // Execute query
+    const snapshot = await query.get();
+    
+    // Process results
+    const activities = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      activities.push({
+        id: doc.id,
+        action: data.action,
+        resource: data.resource,
+        userId: data.userId,
+        resourceId: data.resourceId,
+        timestamp: data.timestamp?.toDate?.() || data.timestamp,
+        status: data.status,
+        details: data.details
+      });
+    });
+    
+    return activities;
+  } catch (error) {
+    console.error('Error fetching activities by resource:', error);
+    throw error;
+  }
+};
+
 module.exports = { 
   logActivity,
   ACTIONS,
   RESOURCES,
-  testLogging
+  testLogging,
+  getActivitiesByAction,
+  getActivitiesByResource
 };

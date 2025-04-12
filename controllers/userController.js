@@ -5,6 +5,7 @@ const { sendMailWithStatus } = require('../public/Utils/emailService');
 require('dotenv').config();
 const { AUTH_ENDPOINTS, EMAIL_TEMPLATES, AUTH_CONSTANTS } = require('../constants/auth');
 const { formatDate } = require('../utils/dateFormatter');
+const { logActivity, ACTIONS, RESOURCES } = require('../utils/logger');
 
 const sendVerificationEmail = async (userData, req) => {
     const now = Date.now();
@@ -158,6 +159,23 @@ exports.addUser = async (req, res) => {
             `
         });
         
+        // Log user creation
+        await logActivity({
+            action: ACTIONS.CREATE,
+            resource: RESOURCES.USER,
+            userId: userRecord.uid,
+            resourceId: userRecord.uid,
+            details: {
+                email,
+                name,
+                surname,
+                plan,
+                company,
+                status: 'pending_verification',
+                verificationSent: true
+            }
+        });
+        
         res.status(201).send({ 
             message: 'User added successfully. Please check your email to verify your account.',
             userId: userRecord.uid,
@@ -168,6 +186,20 @@ exports.addUser = async (req, res) => {
         });
     } catch (error) {
         console.error('Error adding user:', error);
+        
+        // Log error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.USER,
+            userId: 'system', // No user ID available yet
+            status: 'error',
+            details: {
+                error: error.message,
+                email: email, // Include email for tracking failed registrations
+                operation: 'create_user'
+            }
+        });
+        
         res.status(500).send({ message: 'Internal Server Error', error: error.message });
     }
 };
@@ -180,6 +212,20 @@ exports.verifyEmail = async (req, res) => {
         const userDoc = await userRef.get();
 
         if (!userDoc.exists) {
+            // Log verification failure - user not found
+            await logActivity({
+                action: ACTIONS.ERROR,
+                resource: RESOURCES.USER,
+                userId: uid || 'unknown',
+                resourceId: uid,
+                status: 'error',
+                details: {
+                    error: 'User not found',
+                    operation: 'verify_email',
+                    tokenProvided: !!token
+                }
+            });
+            
             // Redirect to the HTML page with user-not-found status
             return res.redirect('/templates/emailVerified.html?status=user-not-found');
         }
@@ -187,11 +233,38 @@ exports.verifyEmail = async (req, res) => {
         const userData = userDoc.data();
 
         if (userData.verificationToken !== token) {
+            // Log verification failure - invalid token
+            await logActivity({
+                action: ACTIONS.ERROR,
+                resource: RESOURCES.USER,
+                userId: uid,
+                resourceId: uid,
+                status: 'error',
+                details: {
+                    error: 'Invalid verification token',
+                    operation: 'verify_email',
+                    email: userData.email
+                }
+            });
+            
             // Redirect to the HTML page with error status
             return res.redirect('/templates/emailVerified.html?status=error');
         }
 
         if (userData.isEmailVerified) {
+            // Log already verified
+            await logActivity({
+                action: ACTIONS.VERIFY,
+                resource: RESOURCES.USER,
+                userId: uid,
+                resourceId: uid,
+                details: {
+                    email: userData.email,
+                    status: 'already_verified',
+                    outcome: 'redundant'
+                }
+            });
+            
             // Redirect to the HTML page with already-verified status
             return res.redirect('/templates/emailVerified.html?status=already-verified');
         }
@@ -207,10 +280,37 @@ exports.verifyEmail = async (req, res) => {
             emailVerified: true
         });
 
+        // Log successful verification
+        await logActivity({
+            action: ACTIONS.VERIFY,
+            resource: RESOURCES.USER,
+            userId: uid,
+            resourceId: uid,
+            details: {
+                email: userData.email,
+                status: 'verified',
+                outcome: 'success'
+            }
+        });
+
         // Redirect to the HTML page with success status
         res.redirect('/templates/emailVerified.html?status=success');
     } catch (error) {
         console.error('Verification error:', error);
+        
+        // Log verification error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.USER,
+            userId: uid || 'unknown',
+            resourceId: uid,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'verify_email'
+            }
+        });
+        
         // Redirect to the HTML page with error status and message
         res.redirect(`/templates/emailVerified.html?status=error&message=${encodeURIComponent(error.message)}`);
     }
@@ -224,23 +324,88 @@ exports.resendVerification = async (req, res) => {
         const userDoc = await userRef.get();
 
         if (!userDoc.exists) {
+            // Log error - user not found
+            await logActivity({
+                action: ACTIONS.ERROR,
+                resource: RESOURCES.USER,
+                userId: uid || 'unknown',
+                status: 'error',
+                details: {
+                    error: 'User not found',
+                    operation: 'resend_verification'
+                }
+            });
+            
             return res.status(404).send({ message: 'User not found' });
         }
 
         const userData = { ...userDoc.data(), ref: userRef, uid };
 
         if (userData.isEmailVerified) {
+            // Log already verified
+            await logActivity({
+                action: ACTIONS.ERROR,
+                resource: RESOURCES.USER,
+                userId: uid,
+                status: 'error',
+                details: {
+                    error: 'Email already verified',
+                    operation: 'resend_verification',
+                    email: userData.email
+                }
+            });
+            
             return res.status(400).send({ message: 'Email already verified' });
         }
 
         try {
             await sendVerificationEmail(userData, req);
+            
+            // Log successful resend
+            await logActivity({
+                action: ACTIONS.SEND,
+                resource: RESOURCES.EMAIL,
+                userId: uid,
+                resourceId: uid,
+                details: {
+                    emailType: 'verification',
+                    recipient: userData.email,
+                    operation: 'resend_verification'
+                }
+            });
+            
             res.status(200).send({ message: 'Verification email sent successfully' });
         } catch (error) {
+            // Log rate limiting or other errors
+            await logActivity({
+                action: ACTIONS.ERROR,
+                resource: RESOURCES.EMAIL,
+                userId: uid,
+                status: 'error',
+                details: {
+                    error: error.message,
+                    operation: 'resend_verification',
+                    email: userData.email
+                }
+            });
+            
             res.status(429).send({ message: error.message });
         }
     } catch (error) {
         console.error('Error resending verification:', error);
+        
+        // Log error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.USER,
+            userId: uid || 'unknown',
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'resend_verification'
+            }
+        });
+        
         res.status(500).send({ 
             message: 'Failed to resend verification email',
             error: error.message 
@@ -273,6 +438,21 @@ exports.deleteUser = async (req, res) => {
             return res.status(404).send({ message: 'User not found' });
         }
 
+        const userData = doc.data();
+        
+        // Log user deletion
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.USER,
+            userId: id,
+            resourceId: id,
+            details: {
+                email: userData.email,
+                plan: userData.plan,
+                status: userData.status
+            }
+        });
+
         await userRef.delete();
         res.status(200).send({ 
             message: 'User deleted successfully',
@@ -280,6 +460,19 @@ exports.deleteUser = async (req, res) => {
         });
     } catch (error) {
         console.error('Delete error:', error);
+        
+        // Log error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.USER,
+            userId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_user'
+            }
+        });
+        
         res.status(500).send({ 
             message: 'Failed to delete user',
             error: error.message 
@@ -301,12 +494,39 @@ exports.signIn = async (req, res) => {
         const userDoc = await db.collection('users').doc(localId).get();
         
         if (!userDoc.exists) {
+            // Log failed login - user not found
+            await logActivity({
+                action: ACTIONS.ERROR,
+                resource: RESOURCES.USER,
+                userId: 'unknown',
+                status: 'error',
+                details: {
+                    error: 'Auth success but user document not found',
+                    operation: 'login',
+                    email
+                }
+            });
+            
             return res.status(404).send({ message: 'User not found' });
         }
 
         const userData = userDoc.data();
 
         if (!userData.isEmailVerified) {
+            // Log failed login - email not verified
+            await logActivity({
+                action: ACTIONS.ERROR,
+                resource: RESOURCES.USER,
+                userId: localId,
+                resourceId: localId,
+                status: 'error',
+                details: {
+                    error: 'Email not verified',
+                    operation: 'login',
+                    email
+                }
+            });
+            
             return res.status(403).send({
                 message: 'Email not verified. Please verify your email or request a new verification email.',
                 needsVerification: true,
@@ -314,6 +534,18 @@ exports.signIn = async (req, res) => {
             });
         }
 
+        // Log successful login
+        await logActivity({
+            action: ACTIONS.LOGIN,
+            resource: RESOURCES.USER,
+            userId: localId,
+            resourceId: localId,
+            details: {
+                email,
+                plan: userData.plan,
+                loginMethod: 'email-password'
+            }
+        });
         res.status(200).send({
             message: 'Sign in successful',
             token: idToken,
@@ -324,6 +556,21 @@ exports.signIn = async (req, res) => {
         });
     } catch (error) {
         console.error('Sign in error:', error.response?.data || error);
+        
+        // Log failed login
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.USER,
+            userId: 'unknown',
+            status: 'error',
+            details: {
+                error: error.response?.data?.error?.message || error.message,
+                operation: 'login',
+                email,
+                attemptedAuth: true
+            }
+        });
+        
         res.status(401).send({ 
             message: 'Invalid credentials',
             error: error.response?.data || error.message
@@ -361,6 +608,18 @@ exports.updateUser = async (req, res) => {
 
         await userRef.update(updateData);
         
+        // Log user profile update
+        await logActivity({
+            action: ACTIONS.UPDATE,
+            resource: RESOURCES.USER,
+            userId: id,
+            resourceId: id,
+            details: {
+                updatedFields: Object.keys(updateData),
+                profileImageUpdated: !!req.file
+            }
+        });
+        
         // Fetch updated user data
         const updatedDoc = await userRef.get();
         const userData = {
@@ -374,6 +633,21 @@ exports.updateUser = async (req, res) => {
         });
     } catch (error) {
         console.error('Update error:', error);
+        
+        // Log error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.USER,
+            userId: id,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'update_user',
+                updatedFields: req.body ? Object.keys(req.body) : []
+            }
+        });
+        
         res.status(500).send({
             message: 'Failed to update user',
             error: error.message
@@ -399,6 +673,20 @@ exports.updateProfileImage = async (req, res) => {
       const profileImage = `/profiles/${req.file.filename}`;
       await userRef.update({ profileImage });
   
+      // Log profile image update
+      await logActivity({
+        action: ACTIONS.UPDATE,
+        resource: RESOURCES.USER,
+        userId: id,
+        resourceId: id,
+        details: {
+          updateType: 'profile_image',
+          fileName: req.file.filename,
+          fileSize: req.file.size,
+          mimeType: req.file.mimetype
+        }
+      });
+      
       // Get updated user data
       const updatedDoc = await userRef.get();
       const userData = {
@@ -409,12 +697,26 @@ exports.updateProfileImage = async (req, res) => {
       res.status(200).send(userData);
     } catch (error) {
       console.error('Error updating profile image:', error);
+      
+      // Log error
+      await logActivity({
+        action: ACTIONS.ERROR,
+        resource: RESOURCES.USER,
+        userId: id,
+        resourceId: id,
+        status: 'error',
+        details: {
+          error: error.message,
+          operation: 'update_profile_image'
+        }
+      });
+      
       res.status(500).send({
         message: 'Failed to update profile image',
         error: error.message
       });
     }
-  };
+};
 
 exports.updateCompanyLogo = async (req, res) => {
     const { id } = req.params;
@@ -434,6 +736,20 @@ exports.updateCompanyLogo = async (req, res) => {
         const companyLogo = `/profiles/${req.file.filename}`;
         await userRef.update({ companyLogo });
 
+        // Log company logo update
+        await logActivity({
+            action: ACTIONS.UPDATE,
+            resource: RESOURCES.USER,
+            userId: id,
+            resourceId: id,
+            details: {
+                updateType: 'company_logo',
+                fileName: req.file.filename,
+                fileSize: req.file.size,
+                mimeType: req.file.mimetype
+            }
+        });
+
         const updatedDoc = await userRef.get();
         const userData = {
             id: updatedDoc.id,
@@ -443,6 +759,20 @@ exports.updateCompanyLogo = async (req, res) => {
         res.status(200).send(userData);
     } catch (error) {
         console.error('Error updating company logo:', error);
+        
+        // Log error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.USER,
+            userId: id,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'update_company_logo'
+            }
+        });
+        
         res.status(500).send({
             message: 'Failed to update company logo',
             error: error.message
@@ -466,8 +796,22 @@ exports.updateUserColor = async (req, res) => {
             return res.status(404).send({ message: 'User not found' });
         }
 
+        const oldColor = doc.data().colorScheme || '#1B2B5B';
         await userRef.update({
             colorScheme: color
+        });
+
+        // Log color scheme update
+        await logActivity({
+            action: ACTIONS.UPDATE,
+            resource: RESOURCES.USER,
+            userId: id,
+            resourceId: id,
+            details: {
+                updateType: 'color_scheme',
+                oldColor: oldColor,
+                newColor: color
+            }
         });
 
         const updatedDoc = await userRef.get();
@@ -482,6 +826,21 @@ exports.updateUserColor = async (req, res) => {
         });
     } catch (error) {
         console.error('Error updating user color:', error);
+        
+        // Log error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.USER,
+            userId: id,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'update_color_scheme',
+                requestedColor: color
+            }
+        });
+        
         res.status(500).send({ 
             message: 'Failed to update user color',
             error: error.message 
@@ -504,6 +863,18 @@ exports.logout = async (req, res) => {
         // Revoke refresh tokens
         await admin.auth().revokeRefreshTokens(uid);
         
+        // Log user logout
+        await logActivity({
+            action: ACTIONS.LOGOUT,
+            resource: RESOURCES.USER,
+            userId: uid,
+            resourceId: uid,
+            details: {
+                tokenRevoked: true,
+                timestamp: new Date().toISOString()
+            }
+        });
+        
         res.status(200).send({ 
             success: true,
             message: 'Logged out successfully',
@@ -520,6 +891,19 @@ exports.logout = async (req, res) => {
         });
     } catch (error) {
         console.error('Logout error:', error);
+        
+        // Log logout error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.USER,
+            userId: req.user?.uid || 'unknown',
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'logout'
+            }
+        });
+        
         res.status(500).send({
             success: false,
             message: 'Failed to logout',
@@ -542,6 +926,9 @@ exports.upgradeToPremium = async (req, res) => {
             return res.status(404).send({ message: 'User not found' });
         }
 
+        const userData = doc.data();
+        const oldPlan = userData.plan || 'free';
+
         // Update user to premium
         await userRef.update({
             plan: 'premium',
@@ -549,18 +936,46 @@ exports.upgradeToPremium = async (req, res) => {
             trialStartDate: admin.firestore.Timestamp.now()
         });
 
+        // Log plan upgrade
+        await logActivity({
+            action: ACTIONS.UPDATE,
+            resource: RESOURCES.USER,
+            userId: id,
+            resourceId: id,
+            details: {
+                updateType: 'plan_upgrade',
+                oldPlan: oldPlan,
+                newPlan: 'premium',
+                trialStarted: true
+            }
+        });
+
         const updatedDoc = await userRef.get();
-        const userData = {
-            id: updatedDoc.id,
-            ...updatedDoc.data()
-        };
+        const updatedData = updatedDoc.data();
 
         res.status(200).send({
             message: 'User upgraded to premium successfully',
-            user: userData
+            user: {
+                id: updatedDoc.id,
+                ...updatedData
+            }
         });
     } catch (error) {
         console.error('Error upgrading user:', error);
+        
+        // Log error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.USER,
+            userId: id,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'upgrade_to_premium'
+            }
+        });
+        
         res.status(500).send({
             message: 'Failed to upgrade user',
             error: error.message

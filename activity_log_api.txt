@@ -1,0 +1,148 @@
+# XS Card Activity Log API Documentation
+
+## Authorization
+All endpoints require authentication using a Bearer token:
+- Header: `Authorization: Bearer {your_token}`
+
+## Endpoints
+
+### 1. Get All Activity Logs
+**GET /api/logs**
+
+Retrieves all activity logs with optional filtering.
+
+**Query Parameters:**
+- action: Filter by action type (e.g., create, update, delete)
+- resource: Filter by resource type (e.g., card, user, meeting)
+- userId: Filter by user ID
+- status: Filter by status (success, error)
+- startTime: Filter by start time (ISO format: YYYY-MM-DDThh:mm:ss.sssZ)
+- endTime: Filter by end time (ISO format: YYYY-MM-DDThh:mm:ss.sssZ)
+- limit: Maximum number of logs to return (default: 50)
+- order: Sort order ('asc' or 'desc', default: 'desc')
+- startAfter: Document ID to start after (for pagination)
+
+**Example:**
+```
+GET /api/logs?resource=card&limit=20&startTime=2023-06-01T00:00:00.000Z
+```
+
+### 2. Get Logs by Action Type
+**GET /api/logs/action/:action**
+
+Retrieves logs for a specific action type.
+
+**URL Parameters:**
+- action: The action type (create, read, update, delete, login, logout, etc.)
+
+**Query Parameters:**
+- Same as "Get All Activity Logs"
+
+**Example:**
+```
+GET /api/logs/action/create?resource=card
+```
+
+**Valid Actions:**
+- create
+- read
+- update
+- delete
+- login
+- logout
+- export
+- send
+- verify
+- apply
+- initialize
+- cancel
+- error
+- generate
+
+### 3. Get Logs by Resource Type
+**GET /api/logs/resource/:resource**
+
+Retrieves logs for a specific resource type.
+
+**URL Parameters:**
+- resource: The resource type (card, user, meeting, etc.)
+
+**Query Parameters:**
+- Same as "Get All Activity Logs" (except resource)
+
+**Example:**
+```
+GET /api/logs/resource/card?action=create&limit=10
+```
+
+**Valid Resources:**
+- user
+- card
+- template
+- department
+- team
+- employee
+- contact
+- meeting
+- subscription
+- payment
+- email
+- system
+- wallet_pass
+- qr_code
+
+### 4. Get User Activity History
+**GET /api/logs/user/:userId**
+
+Retrieves activity history for a specific user.
+
+**URL Parameters:**
+- userId: The user ID
+
+**Query Parameters:**
+- limit: Maximum number of logs to return (default: 50)
+
+**Example:**
+```
+GET /api/logs/user/abc123?limit=20
+```
+
+### 5. Get Error Logs
+**GET /api/logs/errors**
+
+Retrieves all error logs.
+
+**Query Parameters:**
+- resource: Filter by resource type
+- limit: Maximum number of logs to return (default: 50)
+
+**Example:**
+```
+GET /api/logs/errors?resource=card&limit=20
+```
+
+## Testing in Postman
+
+1. Create a new request in Postman
+2. Set the request method to GET
+3. Enter the full URL (e.g., http://localhost:8383/api/logs/action/create)
+4. Add the Authorization header with your bearer token
+5. Add any query parameters
+6. Send the request
+
+## Example Scenarios to Test:
+
+1. All card creation events:
+   GET /api/logs/action/create?resource=card
+
+2. User login activity for a specific user:
+   GET /api/logs/user/{userId}?action=login
+
+3. All wallet pass creations in the last day:
+   GET /api/logs/resource/wallet_pass?startTime={24_hours_ago_ISO_timestamp}
+
+4. Recent errors in the system:
+   GET /api/logs/errors?limit=10
+
+5. All activity for a specific card:
+   GET /api/logs?resource=card&resourceId={cardId}
