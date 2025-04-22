@@ -1,5 +1,5 @@
 const { db, admin } = require('../firebase.js');
-const { getActivitiesByAction, getActivitiesByResource, ACTIONS, RESOURCES } = require('../utils/logger');
+const { getActivitiesByAction, getActivitiesByResource, ACTIONS, RESOURCES, logActivity } = require('../utils/logger');
 
 // Helper function for standardized error responses
 const sendError = (res, status, message, error = null) => {
@@ -68,6 +68,19 @@ exports.getByAction = async (req, res) => {
       
       console.log(`Found ${activities.length} activities for action: ${action}`);
       
+      // Log this activity view
+      await logActivity({
+        action: ACTIONS.VIEW,
+        resource: RESOURCES.ACTIVITY_LOG,
+        userId: req.user?.uid,
+        details: {
+          operation: 'get_activities_by_action',
+          action: action,
+          count: activities.length,
+          filters: options
+        }
+      });
+      
       res.status(200).json({
         success: true,
         count: activities.length,
@@ -121,6 +134,20 @@ exports.getByAction = async (req, res) => {
           return options.orderDirection === 'asc' ? timeA - timeB : timeB - timeA;
         });
         
+        // Log this activity view with fallback
+        await logActivity({
+          action: ACTIONS.VIEW,
+          resource: RESOURCES.ACTIVITY_LOG,
+          userId: req.user?.uid,
+          details: {
+            operation: 'get_activities_by_action_fallback',
+            action: action,
+            count: activities.length,
+            filters: options,
+            note: 'Used client-side sorting due to missing index'
+          }
+        });
+        
         return res.status(200).json({
           success: true,
           count: activities.length,
@@ -138,6 +165,19 @@ exports.getByAction = async (req, res) => {
     }
     
   } catch (error) {
+    // Log the error
+    await logActivity({
+      action: ACTIONS.ERROR,
+      resource: RESOURCES.ACTIVITY_LOG,
+      userId: req.user?.uid,
+      status: 'error',
+      details: {
+        operation: 'get_activities_by_action',
+        error: error.message,
+        action: req.params.action
+      }
+    });
+    
     sendError(res, 500, 'Failed to retrieve activity logs', error);
   }
 };
@@ -185,6 +225,19 @@ exports.getByResource = async (req, res) => {
       const activities = await getActivitiesByResource(resource, options);
       
       console.log(`Found ${activities.length} activities for resource: ${resource}`);
+      
+      // Log this activity view
+      await logActivity({
+        action: ACTIONS.VIEW,
+        resource: RESOURCES.ACTIVITY_LOG,
+        userId: req.user?.uid,
+        details: {
+          operation: 'get_activities_by_resource',
+          resource: resource,
+          count: activities.length,
+          filters: options
+        }
+      });
       
       res.status(200).json({
         success: true,
@@ -248,6 +301,20 @@ exports.getByResource = async (req, res) => {
           return options.orderDirection === 'asc' ? timeA - timeB : timeB - timeA;
         });
         
+        // Log this activity view with fallback
+        await logActivity({
+          action: ACTIONS.VIEW,
+          resource: RESOURCES.ACTIVITY_LOG,
+          userId: req.user?.uid,
+          details: {
+            operation: 'get_activities_by_resource_fallback',
+            resource: resource,
+            count: activities.length,
+            filters: options,
+            note: 'Used client-side sorting due to missing index'
+          }
+        });
+        
         return res.status(200).json({
           success: true,
           count: activities.length,
@@ -265,6 +332,19 @@ exports.getByResource = async (req, res) => {
     }
     
   } catch (error) {
+    // Log the error
+    await logActivity({
+      action: ACTIONS.ERROR,
+      resource: RESOURCES.ACTIVITY_LOG,
+      userId: req.user?.uid,
+      status: 'error',
+      details: {
+        operation: 'get_activities_by_resource',
+        error: error.message,
+        resource: req.params.resource
+      }
+    });
+    
     sendError(res, 500, 'Failed to retrieve activity logs', error);
   }
 };
@@ -427,6 +507,18 @@ exports.getUserHistory = async (req, res) => {
       
       console.log(`Found ${activities.length} activities for user: ${userId}`);
       
+      // Log this activity view
+      await logActivity({
+        action: ACTIONS.VIEW,
+        resource: RESOURCES.ACTIVITY_LOG,
+        userId: req.user?.uid,
+        details: {
+          operation: 'get_user_history',
+          targetUserId: userId,
+          count: activities.length
+        }
+      });
+      
       res.status(200).json({
         success: true,
         userId,
@@ -477,6 +569,19 @@ exports.getUserHistory = async (req, res) => {
         
         console.log(`Found ${activities.length} activities for user: ${userId} (client-side sorting)`);
         
+        // Log this activity view with fallback
+        await logActivity({
+          action: ACTIONS.VIEW,
+          resource: RESOURCES.ACTIVITY_LOG,
+          userId: req.user?.uid,
+          details: {
+            operation: 'get_user_history_fallback',
+            targetUserId: userId,
+            count: activities.length,
+            note: 'Used client-side sorting due to missing index'
+          }
+        });
+        
         return res.status(200).json({
           success: true,
           userId,
@@ -492,6 +597,19 @@ exports.getUserHistory = async (req, res) => {
     }
     
   } catch (error) {
+    // Log the error
+    await logActivity({
+      action: ACTIONS.ERROR,
+      resource: RESOURCES.ACTIVITY_LOG,
+      userId: req.user?.uid,
+      status: 'error',
+      details: {
+        operation: 'get_user_history',
+        error: error.message,
+        targetUserId: req.params.userId
+      }
+    });
+    
     sendError(res, 500, 'Failed to retrieve user activity history', error);
   }
 };
@@ -541,6 +659,18 @@ exports.getErrors = async (req, res) => {
       
       console.log(`Found ${errors.length} error logs`);
       
+      // Log this activity
+      await logActivity({
+        action: ACTIONS.VIEW,
+        resource: RESOURCES.ACTIVITY_LOG,
+        userId: req.user?.uid,
+        details: {
+          operation: 'get_errors',
+          count: errors.length,
+          limit: req.query.limit || 50
+        }
+      });
+      
       res.status(200).json({
         success: true,
         count: errors.length,
@@ -553,6 +683,19 @@ exports.getErrors = async (req, res) => {
         // Extract the index creation URL from the error message
         const urlMatch = queryError.message.match(/https:\/\/console\.firebase\.google\.com[^\s]+/);
         const indexUrl = urlMatch ? urlMatch[0] : null;
+        
+        // Log the index issue
+        await logActivity({
+          action: ACTIONS.ERROR,
+          resource: RESOURCES.ACTIVITY_LOG,
+          userId: req.user?.uid,
+          status: 'error',
+          details: {
+            operation: 'get_errors',
+            error: 'Missing required index',
+            indexUrl: indexUrl
+          }
+        });
         
         return res.status(400).json({
           success: false,
@@ -567,6 +710,18 @@ exports.getErrors = async (req, res) => {
     }
     
   } catch (error) {
+    // Log the error
+    await logActivity({
+      action: ACTIONS.ERROR,
+      resource: RESOURCES.ACTIVITY_LOG,
+      userId: req.user?.uid,
+      status: 'error',
+      details: {
+        operation: 'get_errors',
+        error: error.message
+      }
+    });
+    
     sendError(res, 500, 'Failed to retrieve error logs', error);
   }
 };
