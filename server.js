@@ -59,6 +59,71 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/', paymentRoutes);
 app.use('/', subscriptionRoutes);
 
+// Serve the password setup page
+app.get('/set-password', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'set-password.html'));
+});
+
+// Password setup endpoint - keep this in public routes
+app.post('/api/set-password', async (req, res) => {
+  try {
+    const { token, uid, password } = req.body;
+
+    // Validate input
+    if (!token || !uid || !password) {
+      return res.status(400).send({
+        success: false,
+        message: 'Token, user ID, and password are required'
+      });
+    }
+
+    // Check if token exists and is valid
+    const userRef = db.collection('users').doc(uid);
+    const userDoc = await userRef.get();
+
+    if (!userDoc.exists) {
+      return res.status(404).send({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const userData = userDoc.data();
+    const now = admin.firestore.Timestamp.now();
+
+    // Validate token
+    if (userData.passwordSetupToken !== token || 
+        !userData.passwordSetupExpires || 
+        userData.passwordSetupExpires.toDate() < now.toDate()) {
+      return res.status(400).send({
+        success: false,
+        message: 'Invalid or expired token'
+      });
+    }
+
+    // Update password in Firebase Auth
+    await admin.auth().updateUser(uid, { password });
+
+    // Remove token from user document
+    await userRef.update({
+      passwordSetupToken: admin.firestore.FieldValue.delete(),
+      passwordSetupExpires: admin.firestore.FieldValue.delete()
+    });
+
+    res.status(200).send({
+      success: true,
+      message: 'Password set successfully'
+    });
+  } catch (error) {
+    console.error('Error setting password:', error);
+    res.status(500).send({
+      success: false,
+      message: 'Error setting password',
+      error: error.message
+    });
+  }
+});
+
 app.get('/saveContact', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'saveContact.html'));
 });

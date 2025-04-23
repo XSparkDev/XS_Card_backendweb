@@ -640,7 +640,9 @@ exports.addEmployee = async (req, res) => {
             existingUserId, // If linking an existing user
             colorScheme, // Allow setting a custom color scheme
             company, // Allow setting the company name
-            teamId // New: team ID to assign the employee to
+            teamId, // New: team ID to assign the employee to
+            role = 'employee',
+            isActive = true
         } = req.body;
         
         // Validate required parameters
@@ -653,7 +655,7 @@ exports.addEmployee = async (req, res) => {
         if (!email) missingFields.push('email');
         if (!firstName) missingFields.push('firstName');
         if (!lastName) missingFields.push('lastName');
-        if (!existingUserId && !password) missingFields.push('password or existingUserId');
+        if (!existingUserId && !email) missingFields.push('email');
         
         if (missingFields.length > 0) {
             return sendError(res, 400, `Missing required fields: ${missingFields.join(', ')}`, {
@@ -710,6 +712,7 @@ exports.addEmployee = async (req, res) => {
         let userRecord;
         let isNewUser = false;
         let verificationToken = null;
+        let passwordSetupToken = null;
         
         if (existingUserId) {
             // Verify existing user
@@ -733,9 +736,18 @@ exports.addEmployee = async (req, res) => {
             } catch (error) {
                 // User doesn't exist, create new one
                 isNewUser = true;
+                
+                // Generate a temporary password if none provided
+                const temporaryPassword = password || Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+                
+                // Generate password setup token if no password was provided
+                if (!password) {
+                    passwordSetupToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                }
+                
                 userRecord = await admin.auth().createUser({
                     email,
-                    password,
+                    password: temporaryPassword,
                     displayName: `${firstName} ${lastName}`,
                     emailVerified: false
                 });
@@ -755,6 +767,14 @@ exports.addEmployee = async (req, res) => {
                     createdAt: admin.firestore.Timestamp.now()
                 };
                 
+                // Add password setup token if needed
+                if (passwordSetupToken) {
+                    userData.passwordSetupToken = passwordSetupToken;
+                    userData.passwordSetupExpires = admin.firestore.Timestamp.fromDate(
+                        new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now
+                    );
+                }
+                
                 // Set the document outside the transaction to ensure it exists
                 await db.collection('users').doc(userId).set(userData);
                 
@@ -764,17 +784,31 @@ exports.addEmployee = async (req, res) => {
                     
                     const verificationLink = `${process.env.APP_URL || 'http://localhost:8383'}/verify-email?token=${verificationToken}&uid=${userId}`;
                     
+                    // Prepare email content (with or without password setup info)
+                    let emailHtml = `
+                        <h1>Welcome to XS Card!</h1>
+                        <p>Hello ${firstName},</p>
+                        <p>You've been added as an employee by your administrator.</p>
+                        <p>Please click the link below to verify your email address:</p>
+                        <a href="${verificationLink}">Verify Email</a>
+                        <p>This link will expire in 24 hours.</p>`;
+                    
+                    // Add password setup instructions if applicable
+                    if (passwordSetupToken) {
+                        const setupLink = `${process.env.APP_URL || 'http://localhost:8383'}/set-password?token=${passwordSetupToken}&uid=${userId}`;
+                        emailHtml += `
+                            <p><strong>Set Your Password</strong></p>
+                            <p>You'll need to set up your password to access your account:</p>
+                            <a href="${setupLink}">Set Your Password</a>
+                            <p>This link will expire in 24 hours.</p>`;
+                    }
+                    
+                    emailHtml += `<p>If you didn't expect this email, please ignore it.</p>`;
+                    
                     await sendMailWithStatus({
                         to: email,
-                        subject: 'Verify your XS Card email address',
-                        html: `
-                            <h1>Welcome to XS Card!</h1>
-                            <p>Hello ${firstName},</p>
-                            <p>Please click the link below to verify your email address:</p>
-                            <a href="${verificationLink}">Verify Email</a>
-                            <p>This link will expire in 24 hours.</p>
-                            <p>If you didn't create this account, please ignore this email.</p>
-                        `
+                        subject: 'Welcome to XS Card - Verify your email address',
+                        html: emailHtml
                     });
                     
                     console.log('Verification email sent to:', email);
@@ -809,7 +843,9 @@ exports.addEmployee = async (req, res) => {
                 colorScheme: finalColorScheme,
                 userRef: db.doc(`users/${userId}`),
                 createdAt: admin.firestore.Timestamp.now(),
-                updatedAt: admin.firestore.Timestamp.now()
+                updatedAt: admin.firestore.Timestamp.now(),
+                role: role,
+                isActive: isActive
             };
             
             // Add team reference if provided
@@ -916,7 +952,8 @@ exports.addEmployee = async (req, res) => {
                     teamRef: teamRef ? teamRef.path : null,
                     teamEmployeeRef: teamEmployeeRef ? teamEmployeeRef.path : null
                 },
-                verificationSent: !!verificationToken
+                verificationSent: !!verificationToken,
+                passwordSetupSent: !!passwordSetupToken
             };
         });
         
@@ -938,7 +975,8 @@ exports.addEmployee = async (req, res) => {
             teamId: result.teamId,
             teamEmployeeRefPath: result.teamEmployeeRefPath,
             colorScheme: responseData.colorScheme,
-            verificationSent: result.verificationSent
+            verificationSent: result.verificationSent,
+            passwordSetupSent: result.passwordSetupSent
         });
     } catch (error) {
         console.error('Error adding employee:', error);
