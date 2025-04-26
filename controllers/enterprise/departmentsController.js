@@ -1269,3 +1269,288 @@ exports.deleteEmployee = async (req, res) => {
         sendError(res, 500, 'Error deleting employee', error);
     }
 };
+
+// Get all cards for an enterprise
+exports.getAllEnterpriseCards = async (req, res) => {
+    try {
+        const { enterpriseId } = req.params;
+        
+        if (!enterpriseId) {
+            return sendError(res, 400, 'Enterprise ID is required');
+        }
+
+        // First get all departments in the enterprise
+        const departmentsSnapshot = await db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .get();
+
+        if (departmentsSnapshot.empty) {
+            return res.status(200).send({
+                success: true,
+                cards: [],
+                message: 'No departments found in this enterprise'
+            });
+        }
+
+        // Get all employees across all departments and collect their card references
+        const cardPromises = [];
+        const employeeInfo = [];
+        
+        for (const deptDoc of departmentsSnapshot.docs) {
+            const employeesSnapshot = await deptDoc.ref.collection('employees').get();
+            
+            for (const employeeDoc of employeesSnapshot.docs) {
+                const employeeData = employeeDoc.data();
+                
+                if (employeeData.cardsRef) {
+                    // Store employee info for later association with cards
+                    employeeInfo.push({
+                        employeeId: employeeDoc.id,
+                        departmentId: deptDoc.id,
+                        departmentName: deptDoc.data().name,
+                        firstName: employeeData.firstName,
+                        lastName: employeeData.lastName,
+                        title: employeeData.title,
+                        email: employeeData.email,
+                        cardsRefPath: employeeData.cardsRef.path
+                    });
+                    
+                    // Add promise to fetch the card document
+                    cardPromises.push(employeeData.cardsRef.get());
+                }
+            }
+        }
+        
+        // Execute all card fetch promises in parallel
+        const cardResults = await Promise.all(cardPromises);
+        
+        // Process and organize the cards
+        const allCards = [];
+        
+        cardResults.forEach((cardDoc, index) => {
+            if (cardDoc.exists && cardDoc.data().cards) {
+                const employee = employeeInfo[index];
+                const cardUserId = cardDoc.id;
+                
+                // Format and add each card with employee context
+                cardDoc.data().cards.forEach((card, cardIndex) => {
+                    allCards.push({
+                        ...card,
+                        userId: cardUserId,
+                        cardIndex: cardIndex,
+                        employeeId: employee.employeeId,
+                        employeeName: `${employee.firstName} ${employee.lastName}`,
+                        employeeTitle: employee.title,
+                        departmentId: employee.departmentId,
+                        departmentName: employee.departmentName,
+                        createdAt: card.createdAt ? 
+                            (card.createdAt.toDate ? card.createdAt.toDate().toISOString() : 
+                                card.createdAt._seconds ? new Date(card.createdAt._seconds * 1000).toISOString() : null) 
+                            : null
+                    });
+                });
+            }
+        });
+        
+        res.status(200).send({
+            success: true,
+            cards: allCards,
+            count: allCards.length
+        });
+        
+    } catch (error) {
+        sendError(res, 500, 'Error fetching enterprise cards', error);
+    }
+};
+
+// Get all cards in a specific department
+exports.getDepartmentCards = async (req, res) => {
+    try {
+        const { enterpriseId, departmentId } = req.params;
+        
+        if (!enterpriseId || !departmentId) {
+            return sendError(res, 400, 'Enterprise ID and Department ID are required');
+        }
+
+        // Get all employees in the department
+        const employeesSnapshot = await db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .doc(departmentId)
+            .collection('employees')
+            .get();
+            
+        if (employeesSnapshot.empty) {
+            return res.status(200).send({
+                success: true,
+                cards: [],
+                message: 'No employees found in this department'
+            });
+        }
+
+        // Collect card references and employee info
+        const cardPromises = [];
+        const employeeInfo = [];
+        
+        employeesSnapshot.forEach(employeeDoc => {
+            const employeeData = employeeDoc.data();
+            
+            if (employeeData.cardsRef) {
+                employeeInfo.push({
+                    employeeId: employeeDoc.id,
+                    firstName: employeeData.firstName,
+                    lastName: employeeData.lastName,
+                    title: employeeData.title,
+                    email: employeeData.email,
+                    cardsRefPath: employeeData.cardsRef.path
+                });
+                
+                cardPromises.push(employeeData.cardsRef.get());
+            }
+        });
+        
+        // Execute all card fetch promises in parallel
+        const cardResults = await Promise.all(cardPromises);
+        
+        // Process and organize the cards
+        const departmentCards = [];
+        
+        cardResults.forEach((cardDoc, index) => {
+            if (cardDoc.exists && cardDoc.data().cards) {
+                const employee = employeeInfo[index];
+                const cardUserId = cardDoc.id;
+                
+                cardDoc.data().cards.forEach((card, cardIndex) => {
+                    departmentCards.push({
+                        ...card,
+                        userId: cardUserId,
+                        cardIndex: cardIndex,
+                        employeeId: employee.employeeId,
+                        employeeName: `${employee.firstName} ${employee.lastName}`,
+                        employeeTitle: employee.title,
+                        email: employee.email,
+                        createdAt: card.createdAt ? 
+                            (card.createdAt.toDate ? card.createdAt.toDate().toISOString() : 
+                                card.createdAt._seconds ? new Date(card.createdAt._seconds * 1000).toISOString() : null) 
+                            : null
+                    });
+                });
+            }
+        });
+        
+        res.status(200).send({
+            success: true,
+            departmentId,
+            cards: departmentCards,
+            count: departmentCards.length
+        });
+        
+    } catch (error) {
+        sendError(res, 500, 'Error fetching department cards', error);
+    }
+};
+
+// Get all cards in a specific team
+exports.getTeamCards = async (req, res) => {
+    try {
+        const { enterpriseId, departmentId, teamId } = req.params;
+        
+        if (!enterpriseId || !departmentId || !teamId) {
+            return sendError(res, 400, 'Enterprise ID, Department ID, and Team ID are required');
+        }
+
+        // Get the team first to verify it exists
+        const teamRef = db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .doc(departmentId)
+            .collection('teams')
+            .doc(teamId);
+            
+        const teamDoc = await teamRef.get();
+        
+        if (!teamDoc.exists) {
+            return sendError(res, 404, 'Team not found');
+        }
+
+        // Get all employees in the team
+        const teamEmployeesSnapshot = await teamRef.collection('employees').get();
+        
+        if (teamEmployeesSnapshot.empty) {
+            return res.status(200).send({
+                success: true,
+                cards: [],
+                message: 'No employees found in this team'
+            });
+        }
+
+        // Collect card references and employee info
+        const cardPromises = [];
+        const employeeInfo = [];
+        
+        for (const employeeDoc of teamEmployeesSnapshot.docs) {
+            const employeeData = employeeDoc.data();
+            
+            if (employeeData.cardsRef) {
+                employeeInfo.push({
+                    employeeId: employeeDoc.id,
+                    firstName: employeeData.firstName,
+                    lastName: employeeData.lastName,
+                    title: employeeData.title,
+                    email: employeeData.email,
+                    cardsRefPath: employeeData.cardsRef.path
+                });
+                
+                // If cardsRef is a reference, get it, otherwise parse the path
+                if (typeof employeeData.cardsRef.get === 'function') {
+                    cardPromises.push(employeeData.cardsRef.get());
+                } else if (employeeData.cardsRefPath) {
+                    const cardId = employeeData.cardsRefPath.split('/')[1];
+                    cardPromises.push(db.collection('cards').doc(cardId).get());
+                }
+            }
+        }
+        
+        // Execute all card fetch promises in parallel
+        const cardResults = await Promise.all(cardPromises);
+        
+        // Process and organize the cards
+        const teamCards = [];
+        
+        cardResults.forEach((cardDoc, index) => {
+            if (cardDoc.exists && cardDoc.data().cards) {
+                const employee = employeeInfo[index];
+                const cardUserId = cardDoc.id;
+                
+                cardDoc.data().cards.forEach((card, cardIndex) => {
+                    teamCards.push({
+                        ...card,
+                        userId: cardUserId,
+                        cardIndex: cardIndex,
+                        employeeId: employee.employeeId,
+                        employeeName: `${employee.firstName} ${employee.lastName}`,
+                        employeeTitle: employee.title,
+                        teamId,
+                        teamName: teamDoc.data().name,
+                        createdAt: card.createdAt ? 
+                            (card.createdAt.toDate ? card.createdAt.toDate().toISOString() : 
+                                card.createdAt._seconds ? new Date(card.createdAt._seconds * 1000).toISOString() : null) 
+                            : null
+                    });
+                });
+            }
+        });
+        
+        res.status(200).send({
+            success: true,
+            teamId,
+            teamName: teamDoc.data().name,
+            cards: teamCards,
+            count: teamCards.length
+        });
+        
+    } catch (error) {
+        sendError(res, 500, 'Error fetching team cards', error);
+    }
+};
