@@ -893,7 +893,7 @@ exports.addEmployee = async (req, res) => {
                 // Create the same employee data in the team's employees subcollection
                 teamEmployeeRef = teamRef.collection('employees').doc(employeeRef.id); // Use same ID for consistency
                 
-                // Create a teamEmployee data object that includes department reference
+                // Create team employee data object that includes department reference
                 const teamEmployeeData = {
                     ...employeeData,
                     departmentRef: departmentRef,
@@ -1552,5 +1552,102 @@ exports.getTeamCards = async (req, res) => {
         
     } catch (error) {
         sendError(res, 500, 'Error fetching team cards', error);
+    }
+};
+
+// Get all employees across the entire enterprise
+exports.getAllEnterpriseEmployees = async (req, res) => {
+    try {
+        const { enterpriseId } = req.params;
+        const { page = 1, limit = 50, search } = req.query;
+        
+        if (!enterpriseId) {
+            return res.status(400).send({ 
+                success: false, 
+                message: 'Enterprise ID is required' 
+            });
+        }
+
+        // Check if enterprise exists
+        const enterpriseRef = db.collection('enterprise').doc(enterpriseId);
+        const enterpriseDoc = await enterpriseRef.get();
+        
+        if (!enterpriseDoc.exists) {
+            return res.status(404).send({ 
+                success: false, 
+                message: 'Enterprise not found' 
+            });
+        }
+
+        // Get all departments first
+        const departmentsRef = enterpriseRef.collection('departments');
+        const departmentsSnapshot = await departmentsRef.get();
+        
+        if (departmentsSnapshot.empty) {
+            return res.status(200).send({
+                success: true,
+                employees: [],
+                totalCount: 0,
+                currentPage: parseInt(page),
+                totalPages: 0
+            });
+        }
+
+        // Collect all employees across departments
+        const allEmployees = [];
+        const fetchPromises = [];
+
+        departmentsSnapshot.forEach(departmentDoc => {
+            const departmentId = departmentDoc.id;
+            const departmentName = departmentDoc.data().name;
+            
+            const employeesQuery = departmentsRef
+                .doc(departmentId)
+                .collection('employees');
+                
+            fetchPromises.push(
+                employeesQuery.get().then(employeesSnapshot => {
+                    employeesSnapshot.forEach(employeeDoc => {
+                        const employeeData = employeeDoc.data();
+                        allEmployees.push({
+                            id: employeeDoc.id,
+                            departmentId,
+                            departmentName,
+                            ...employeeData
+                        });
+                    });
+                })
+            );
+        });
+
+        // Wait for all employee fetches to complete
+        await Promise.all(fetchPromises);
+        
+        // Handle search if provided
+        let filteredEmployees = allEmployees;
+        if (search) {
+            const searchLower = search.toLowerCase();
+            filteredEmployees = allEmployees.filter(employee => 
+                (employee.firstName && employee.firstName.toLowerCase().includes(searchLower)) ||
+                (employee.lastName && employee.lastName.toLowerCase().includes(searchLower)) ||
+                (employee.email && employee.email.toLowerCase().includes(searchLower)) ||
+                (employee.employeeId && employee.employeeId.toLowerCase().includes(searchLower))
+            );
+        }
+        
+        // Handle pagination
+        const startIndex = (parseInt(page) - 1) * parseInt(limit);
+        const endIndex = startIndex + parseInt(limit);
+        const paginatedEmployees = filteredEmployees.slice(startIndex, endIndex);
+        
+        res.status(200).send({
+            success: true,
+            employees: paginatedEmployees,
+            totalCount: filteredEmployees.length,
+            currentPage: parseInt(page),
+            totalPages: Math.ceil(filteredEmployees.length / parseInt(limit))
+        });
+    } catch (error) {
+        sendError(res, 500, 'Error fetching enterprise employees', error);
     }
 };
