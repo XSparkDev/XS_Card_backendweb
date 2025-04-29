@@ -31,6 +31,7 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const departmentsRoutes = require('./routes/departmentsRoutes');
 const activityLogRoutes = require('./routes/activityLogRoutes');
+const enterpriseRoutes = require('./routes/enterpriseRoutes');
 
 // Configure multer for file upload
 const storage = multer.diskStorage({
@@ -368,6 +369,7 @@ app.use('/', meetingRoutes);
 app.use('/', departmentsRoutes);
 app.use('/', paymentRoutes);
 app.use('/', activityLogRoutes); // Mount at root instead of /api/logs
+app.use('/', enterpriseRoutes);
 
 // Modify the user creation route to handle file upload
 app.post('/api/users', upload.single('profileImage'), (req, res, next) => {

@@ -37,6 +37,7 @@ router.put('/enterprise/:enterpriseId/departments/:departmentId/employees/:emplo
 router.delete('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId', departmentsController.deleteEmployee);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId/card', departmentsController.getEmployeeCard);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/query-employee', departmentsController.queryEmployee);
+router.get('/enterprise/:enterpriseId/departments/:departmentId/managers', departmentsController.getDepartmentManagers);
 
 // Add a route to get all employees across the enterprise
 router.get('/enterprise/:enterpriseId/employees', departmentsController.getAllEnterpriseEmployees);
