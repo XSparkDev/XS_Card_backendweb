@@ -38,6 +38,9 @@ router.delete('/enterprise/:enterpriseId/departments/:departmentId/employees/:em
 router.get('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId/card', departmentsController.getEmployeeCard);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/query-employee', departmentsController.queryEmployee);
 
+// Add a route to get all employees across the enterprise
+router.get('/enterprise/:enterpriseId/employees', departmentsController.getAllEnterpriseEmployees);
+
 // Enterprise cards routes - New endpoints
 router.get('/enterprise/:enterpriseId/cards', departmentsController.getAllEnterpriseCards);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/cards', departmentsController.getDepartmentCards);
