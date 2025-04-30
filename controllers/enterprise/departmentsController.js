@@ -260,7 +260,13 @@ exports.createDepartment = async (req, res) => {
 exports.updateDepartment = async (req, res) => {
     try {
         const { enterpriseId, departmentId } = req.params;
-        const { name, description, managers, parentDepartmentId } = req.body;
+        const { 
+            name, 
+            description, 
+            managers, 
+            parentDepartmentId,
+            removeManagersCompletely = false // Flag to decide whether to remove managers from the department
+        } = req.body;
         
         if (!enterpriseId || !departmentId) {
             return sendError(res, 400, 'Enterprise ID and Department ID are required');
@@ -277,6 +283,8 @@ exports.updateDepartment = async (req, res) => {
         if (!departmentDoc.exists) {
             return sendError(res, 404, 'Department not found');
         }
+        
+        const departmentData = departmentDoc.data();
 
         // Prepare update data
         const updateData = {
@@ -287,30 +295,211 @@ exports.updateDepartment = async (req, res) => {
         if (description !== undefined) updateData.description = description;
         if (parentDepartmentId !== undefined) updateData.parentDepartmentId = parentDepartmentId;
         
-        // Handle managers separately if provided
+        // Track changes for the response
+        const response = {
+            success: true,
+            message: 'Department updated successfully',
+            managersAdded: [],
+            managersRemoved: [],
+            managersRoleChanged: []
+        };
+        
+        // Process managers changes if provided
         if (managers && Array.isArray(managers)) {
-            updateData.managers = managers.map(manager => db.doc(`users/${manager}`));
+            // Get current managers
+            const currentManagersRefs = departmentData.managers || [];
+            const currentManagerIds = currentManagersRefs.map(ref => ref.id || ref._path.segments[1]);
+            
+            // Identify changes
+            const managersToAdd = managers.filter(id => !currentManagerIds.includes(id));
+            const managersToRemove = currentManagerIds.filter(id => !managers.includes(id));
+            
+            console.log('Current managers:', currentManagerIds);
+            console.log('New managers:', managers);
+            console.log('To add:', managersToAdd);
+            console.log('To remove:', managersToRemove);
+            
+            // Process new managers - verify they exist
+            let validNewManagerUsers = [];
+            if (managersToAdd.length > 0) {
+                const managerPromises = managersToAdd.map(managerId => 
+                    db.collection('users').doc(managerId).get()
+                );
+                const managerResults = await Promise.all(managerPromises);
+                
+                // Check if any manager doesn't exist
+                const missingManagers = managerResults
+                    .map((doc, index) => ({ exists: doc.exists, id: managersToAdd[index] }))
+                    .filter(manager => !manager.exists);
+                    
+                if (missingManagers.length > 0) {
+                    return sendError(
+                        res, 
+                        404, 
+                        `The following managers do not exist: ${missingManagers.map(m => m.id).join(', ')}`
+                    );
+                }
+                
+                validNewManagerUsers = managerResults
+                    .filter(doc => doc.exists)
+                    .map(doc => ({
+                        id: doc.id,
+                        data: doc.data()
+                    }));
+            }
+            
+            // Update the managers reference list
+            updateData.managers = managers.map(managerId => db.doc(`users/${managerId}`));
+            
+            // Run in a transaction to ensure data consistency
+            await db.runTransaction(async (transaction) => {
+                // 1. Process new managers - add them as employees
+                for (const manager of validNewManagerUsers) {
+                    // Check if user is already an employee in this department
+                    const employeesRef = departmentRef.collection('employees');
+                    const existingEmployeeQuery = await employeesRef
+                        .where('userId', '==', db.doc(`users/${manager.id}`))
+                        .get();
+                    
+                    if (existingEmployeeQuery.empty) {
+                        // Create a new employee record
+                        const employeeData = {
+                            userId: db.doc(`users/${manager.id}`),
+                            name: manager.data.name || '',
+                            surname: manager.data.surname || '',
+                            email: manager.data.email || '',
+                            phone: manager.data.phone || '',
+                            role: 'manager',
+                            position: manager.data.position || 'Department Manager',
+                            profileImage: manager.data.profileImage || '',
+                            isActive: true,
+                            createdAt: admin.firestore.Timestamp.now(),
+                            updatedAt: admin.firestore.Timestamp.now()
+                        };
+                        
+                        // Add employee record
+                        const newEmployeeRef = employeesRef.doc();
+                        transaction.set(newEmployeeRef, employeeData);
+                        
+                        // Update user record with references
+                        const userRef = db.collection('users').doc(manager.id);
+                        transaction.update(userRef, {
+                            isEmployee: true,
+                            employeeRef: db.doc(`enterprise/${enterpriseId}/departments/${departmentId}/employees/${newEmployeeRef.id}`),
+                            departmentRef: departmentRef,
+                            enterpriseRef: db.doc(`enterprise/${enterpriseId}`),
+                            updatedAt: admin.firestore.Timestamp.now()
+                        });
+                        
+                        // Increment member count
+                        updateData.memberCount = admin.firestore.FieldValue.increment(1);
+                        
+                        // Add to response
+                        response.managersAdded.push({
+                            id: newEmployeeRef.id,
+                            userId: manager.id,
+                            name: manager.data.name || '',
+                            surname: manager.data.surname || '',
+                            action: 'added_as_employee'
+                        });
+                    } else {
+                        // Update existing employee to manager role
+                        const employeeDoc = existingEmployeeQuery.docs[0];
+                        transaction.update(employeeDoc.ref, {
+                            role: 'manager',
+                            updatedAt: admin.firestore.Timestamp.now()
+                        });
+                        
+                        // Add to response
+                        response.managersRoleChanged.push({
+                            id: employeeDoc.id,
+                            userId: manager.id,
+                            name: employeeDoc.data().name || '',
+                            surname: employeeDoc.data().surname || '',
+                            action: 'promoted_to_manager'
+                        });
+                    }
+                }
+                
+                // 2. Process managers to remove
+                for (const managerId of managersToRemove) {
+                    // Find the employee record
+                    const employeesRef = departmentRef.collection('employees');
+                    const employeeQuery = await employeesRef
+                        .where('userId', '==', db.doc(`users/${managerId}`))
+                        .get();
+                    
+                    if (!employeeQuery.empty) {
+                        const employeeDoc = employeeQuery.docs[0];
+                        const employeeData = employeeDoc.data();
+                        
+                        if (removeManagersCompletely) {
+                            // Remove from department completely
+                            transaction.delete(employeeDoc.ref);
+                            
+                            // Update user record
+                            const userRef = db.collection('users').doc(managerId);
+                            transaction.update(userRef, {
+                                employeeRef: admin.firestore.FieldValue.delete(),
+                                departmentRef: admin.firestore.FieldValue.delete(),
+                                isEmployee: false,
+                                updatedAt: admin.firestore.Timestamp.now()
+                            });
+                            
+                            // Decrement member count
+                            updateData.memberCount = admin.firestore.FieldValue.increment(-1);
+                            
+                            // Add to response
+                            response.managersRemoved.push({
+                                id: employeeDoc.id,
+                                userId: managerId,
+                                name: employeeData.name || '',
+                                surname: employeeData.surname || '',
+                                action: 'removed_completely'
+                            });
+                        } else {
+                            // Just change role to regular employee
+                            transaction.update(employeeDoc.ref, {
+                                role: 'employee',
+                                updatedAt: admin.firestore.Timestamp.now()
+                            });
+                            
+                            // Add to response
+                            response.managersRoleChanged.push({
+                                id: employeeDoc.id,
+                                userId: managerId,
+                                name: employeeData.name || '',
+                                surname: employeeData.surname || '',
+                                action: 'demoted_to_employee'
+                            });
+                        }
+                    }
+                }
+                
+                // Update the department document
+                transaction.update(departmentRef, updateData);
+            });
+        } else {
+            // If no managers provided, just update the basic fields
+            await departmentRef.update(updateData);
         }
 
-        // Update the department
-        await departmentRef.update(updateData);
-
-        // Get updated document
+        // Get updated document for response
         const updatedDoc = await departmentRef.get();
         const updatedData = updatedDoc.data();
 
         res.status(200).send({
-            success: true,
-            message: 'Department updated successfully',
+            ...response,
             department: {
                 id: departmentId,
                 ...updatedData,
                 createdAt: updatedData.createdAt.toDate().toISOString(),
                 updatedAt: updatedData.updatedAt.toDate().toISOString(),
-                managers: managers || updatedData.managers.map(ref => ref.id) // Return IDs for response
+                managers: managers || updatedData.managers.map(ref => ref.id || ref._path.segments[1]) // Return IDs for response
             }
         });
     } catch (error) {
+        console.error('Error updating department:', error);
         sendError(res, 500, 'Error updating department', error);
     }
 };
