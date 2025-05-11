@@ -32,6 +32,10 @@ const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const departmentsRoutes = require('./routes/departmentsRoutes');
 const activityLogRoutes = require('./routes/activityLogRoutes');
 const enterpriseRoutes = require('./routes/enterpriseRoutes');
+const locationRoutes = require('./routes/locationRoutes');
+
+// Location tracking middleware
+const { enrichContactWithIp, processContactLocation, getClientIp } = require('./contactMiddleware');
 
 // Configure multer for file upload
 const storage = multer.diskStorage({
@@ -60,6 +64,65 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/', paymentRoutes);
 app.use('/', subscriptionRoutes);
+
+// Location analytics routes
+app.use('/api', locationRoutes);
+
+// Test location routes
+const testLocationRoutes = require('./tests/test-location');
+app.use('/test', testLocationRoutes);
+
+// Test endpoint for location lookup
+app.get('/api/test-location/:ip', async (req, res) => {
+  const ip = req.params.ip;
+  try {
+    console.log(`[Test] Testing location lookup for IP: ${ip}`);
+    const { getLocationFromIp } = require('./locationService');
+    const location = await getLocationFromIp(ip);
+    console.log(`[Test] Location lookup result:`, location);
+    res.json({ success: !!location, location });
+  } catch (error) {
+    console.error(`[Test] Error testing location:`, error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Test endpoint to check location data storage for a user
+app.get('/api/test-user-locations/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    console.log(`[Test] Checking stored location data for user: ${userId}`);
+    
+    const contactRef = db.collection('contacts').doc(userId);
+    const doc = await contactRef.get();
+    
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'No contacts found for this user' });
+    }
+    
+    const contactList = doc.data().contactList || [];
+    
+    // Count contacts with location data
+    const contactsWithLocation = contactList.filter(contact => contact.location);
+    
+    // Extract location data for display
+    const locationData = contactsWithLocation.map((contact, index) => ({
+      contactIndex: contactList.indexOf(contact),
+      name: `${contact.name || ''} ${contact.surname || ''}`.trim(),
+      location: contact.location
+    }));
+    
+    res.json({
+      userId,
+      totalContacts: contactList.length,
+      contactsWithLocation: contactsWithLocation.length,
+      locationData
+    });
+  } catch (error) {
+    console.error(`[Test] Error checking user locations:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Serve the password setup page
 app.get('/set-password', (req, res) => {
@@ -131,7 +194,7 @@ app.get('/saveContact', (req, res) => {
 });
 
 // Add the AddContact endpoint directly to server.js
-app.post('/AddContact', async (req, res) => {
+app.post('/AddContact', enrichContactWithIp, async (req, res) => {
     const { userId, contactInfo } = req.body;
     
     console.log('Add Contact called - Public endpoint in server.js');
@@ -185,6 +248,15 @@ app.post('/AddContact', async (req, res) => {
             userId: db.doc(`users/${userId}`),
             contactList: currentContacts
         }, { merge: true });
+        
+        // Process location data
+        const contactIndex = currentContacts.length - 1;
+        const ipAddress = req._locationMetadata?.ipAddress;
+        
+        // Queue location lookup in background
+        if (ipAddress) {
+            processContactLocation(userId, contactIndex, ipAddress);
+        }
         
         if (userData.email) {
             const mailOptions = {

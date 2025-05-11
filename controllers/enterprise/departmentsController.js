@@ -1,4 +1,5 @@
 const { db, admin } = require('../../firebase.js');
+const { sendMailWithStatus } = require('../../public/Utils/emailService');
 
 // Helper function for standardized error responses
 const sendError = (res, status, message, error = null) => {
@@ -896,10 +897,24 @@ exports.queryEmployee = async (req, res) => {
 exports.addEmployee = async (req, res) => {
     try {
         const { enterpriseId, departmentId } = req.params;
-        const { userId, role = 'employee', position, teamId = null, isActive = true } = req.body;
+        const { 
+            userId, 
+            email, 
+            firstName, 
+            lastName, 
+            title, 
+            phone, 
+            role = 'employee', 
+            position, 
+            teamId = null, 
+            isActive = true,
+            employeeId,
+            colorScheme,
+            profileImage
+        } = req.body;
         
-        if (!enterpriseId || !departmentId || !userId) {
-            return sendError(res, 400, 'Enterprise ID, Department ID and User ID are required');
+        if (!enterpriseId || !departmentId) {
+            return sendError(res, 400, 'Enterprise ID and Department ID are required');
         }
         
         // Validate role is one of the allowed values
@@ -908,14 +923,6 @@ exports.addEmployee = async (req, res) => {
             return sendError(res, 400, `Role must be one of: ${allowedRoles.join(', ')}`);
         }
 
-        // Check if the user exists
-        const userRef = db.collection('users').doc(userId);
-        const userDoc = await userRef.get();
-        
-        if (!userDoc.exists) {
-            return sendError(res, 404, 'User not found');
-        }
-        
         // Check if department exists
         const departmentRef = db.collection('enterprise')
             .doc(enterpriseId)
@@ -935,31 +942,138 @@ exports.addEmployee = async (req, res) => {
         if (!enterpriseDoc.exists) {
             return sendError(res, 404, 'Enterprise not found');
         }
+
+        let userRef;
+        let userData;
+        let actualUserId;
+
+        // If userId is provided, check if user exists
+        if (userId) {
+            userRef = db.collection('users').doc(userId);
+            const userDoc = await userRef.get();
+            
+            if (!userDoc.exists) {
+                return sendError(res, 404, 'User not found');
+            }
+            
+            userData = userDoc.data();
+            actualUserId = userId;
+        } 
+        // If userId is not provided but email is, try to find user by email
+        else if (email) {
+            // Check if a user with this email already exists
+            const usersQuery = await db.collection('users')
+                .where('email', '==', email)
+                .get();
+                
+            if (!usersQuery.empty) {
+                // User exists, use this user
+                const userDoc = usersQuery.docs[0];
+                userRef = db.collection('users').doc(userDoc.id);
+                userData = userDoc.data();
+                actualUserId = userDoc.id;
+                console.log(`Found existing user with email ${email}, ID: ${actualUserId}`);
+            } else {
+                // Create a new user
+                if (!email || !firstName || !lastName) {
+                    return sendError(res, 400, 'Email, firstName, and lastName are required to create a new user');
+                }
+                
+                // Generate verification token
+                const verificationToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                
+                // Generate password setup token if needed
+                const passwordSetupToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                
+                // Create a new user document
+                const newUserData = {
+                    email,
+                    name: firstName,
+                    surname: lastName,
+                    phone: phone || '',
+                    title: title || '',
+                    profileImage: profileImage || '',
+                    employeeId: employeeId || '',
+                    colorScheme: colorScheme || '#000000',
+                    createdAt: admin.firestore.Timestamp.now(),
+                    updatedAt: admin.firestore.Timestamp.now(),
+                    isEmployee: true,
+                    isEmailVerified: false,
+                    verificationToken: verificationToken,
+                    passwordSetupToken: passwordSetupToken,
+                    passwordSetupExpires: admin.firestore.Timestamp.fromDate(
+                        new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now
+                    )
+                };
+                
+                userRef = db.collection('users').doc();
+                actualUserId = userRef.id;
+                
+                await userRef.set(newUserData);
+                userData = newUserData;
+                console.log(`Created new user with email ${email}, ID: ${actualUserId}`);
+                
+                // Send verification email
+                try {
+                    const verificationLink = `${process.env.APP_URL || 'http://localhost:8383'}/verify-email?token=${verificationToken}&uid=${actualUserId}`;
+                    
+                    // Prepare email content with password setup info
+                    let emailHtml = `
+                        <h1>Welcome to XS Card!</h1>
+                        <p>Hello ${firstName},</p>
+                        <p>You've been added as an employee by your administrator.</p>
+                        <p>Please click the link below to verify your email address:</p>
+                        <a href="${verificationLink}">Verify Email</a>
+                        <p>This link will expire in 24 hours.</p>`;
+                    
+                    // Add password setup instructions
+                    const setupLink = `${process.env.APP_URL || 'http://localhost:8383'}/set-password?token=${passwordSetupToken}&uid=${actualUserId}`;
+                    emailHtml += `
+                        <p><strong>Set Your Password</strong></p>
+                        <p>You'll need to set up your password to access your account:</p>
+                        <a href="${setupLink}">Set Your Password</a>
+                        <p>This link will expire in 24 hours.</p>`;
+                    
+                    emailHtml += `<p>If you didn't expect this email, please ignore it.</p>`;
+                    
+                    await sendMailWithStatus({
+                        to: email,
+                        subject: 'Welcome to XS Card - Verify your email address',
+                        html: emailHtml
+                    });
+                    
+                    console.log('Verification email sent to:', email);
+                } catch (emailError) {
+                    console.error('Failed to send verification email:', emailError);
+                    // Continue with user creation even if email fails
+                }
+            }
+        } else {
+            return sendError(res, 400, 'Either userId or email is required');
+        }
         
         // Check if user is already an employee in this department
         const employeesRef = departmentRef.collection('employees');
         const existingEmployeeQuery = await employeesRef
-            .where('userId', '==', db.doc(`users/${userId}`))
+            .where('userId', '==', db.doc(`users/${actualUserId}`))
             .get();
             
         if (!existingEmployeeQuery.empty) {
             return sendError(res, 409, 'User is already an employee in this department');
         }
         
-        // Get user data for employee record
-        const userData = userDoc.data();
-        
         // Create employee record with role information
         const employeeData = {
-            userId: db.doc(`users/${userId}`),
-            name: userData.name || '',
-            surname: userData.surname || '',
-            email: userData.email || '',
-            phone: userData.phone || '',
-            role: role, // Set the role from the request
-            position: position || '',
-            profileImage: userData.profileImage || '',
-            teamId: teamId, // Optional team reference
+            userId: db.doc(`users/${actualUserId}`),
+            name: firstName || userData.name || '',
+            surname: lastName || userData.surname || '',
+            email: email || userData.email || '',
+            phone: phone || userData.phone || '',
+            role: role,
+            position: position || title || '',
+            profileImage: profileImage || userData.profileImage || '',
+            employeeId: employeeId || '',
+            teamId: teamId,
             isActive: isActive,
             createdAt: admin.firestore.Timestamp.now(),
             updatedAt: admin.firestore.Timestamp.now()
@@ -986,21 +1100,104 @@ exports.addEmployee = async (req, res) => {
             updatedAt: admin.firestore.Timestamp.now()
         });
         
+        // If teamId is provided, add employee to the team
+        let teamData = null;
+        if (teamId) {
+            try {
+                const teamRef = db.collection('enterprise')
+                    .doc(enterpriseId)
+                    .collection('departments')
+                    .doc(departmentId)
+                    .collection('teams')
+                    .doc(teamId);
+                
+                const teamDoc = await teamRef.get();
+                
+                if (teamDoc.exists) {
+                    // Add employee to team's employees collection
+                    const teamEmployeeData = {
+                        employeeRef: newEmployeeRef,
+                        userId: db.doc(`users/${actualUserId}`),
+                        name: firstName || userData.name || '',
+                        surname: lastName || userData.surname || '',
+                        role: role,
+                        position: position || title || '',
+                        addedAt: admin.firestore.Timestamp.now()
+                    };
+                    
+                    const teamEmployeeRef = await teamRef.collection('employees').add(teamEmployeeData);
+                    
+                    // Update employee record with team references
+                    await newEmployeeRef.update({
+                        teamRef: teamRef,
+                        teamEmployeeRef: teamEmployeeRef
+                    });
+                    
+                    // Update team member count
+                    await teamRef.update({
+                        memberCount: admin.firestore.FieldValue.increment(1),
+                        updatedAt: admin.firestore.Timestamp.now()
+                    });
+                    
+                    teamData = {
+                        id: teamId,
+                        name: teamDoc.data().name
+                    };
+                } else {
+                    console.warn(`Team with ID ${teamId} not found, skipping team assignment`);
+                }
+            } catch (teamError) {
+                console.error('Error adding employee to team:', teamError);
+                // Continue without failing the entire operation
+            }
+        }
+        
         // Return the new employee data
         const responseData = {
             id: newEmployeeId,
             ...employeeData,
-            userId: userId,
+            userId: actualUserId,
             createdAt: employeeData.createdAt.toDate().toISOString(),
             updatedAt: employeeData.updatedAt.toDate().toISOString()
         };
         
         console.log(`Added employee ${newEmployeeId} to department ${departmentId}`);
         
+        // Only send department welcome email if the user already existed (didn't need verification email)
+        const isExistingUser = userId || (email && !userData.verificationToken);
+        if (isExistingUser) {
+            try {
+                const departmentName = departmentDoc.data().name;
+                const enterpriseDoc = await enterpriseRef.get();
+                const enterpriseName = enterpriseDoc.exists ? enterpriseDoc.data().name : 'the enterprise';
+                
+                await sendMailWithStatus({
+                    to: email || userData.email,
+                    subject: `Welcome to ${departmentName} Department`,
+                    html: `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                            <h1 style="color: #1B2B5B;">Welcome to ${departmentName}!</h1>
+                            <p>Hello ${firstName || userData.name || ''},</p>
+                            <p>You have been added as a ${role} to the ${departmentName} department at ${enterpriseName}.</p>
+                            ${teamData ? `<p>You've also been assigned to the ${teamData.name} team.</p>` : ''}
+                            <p>Please log in to your account to access your employee portal and card.</p>
+                            <p>If you have any questions, please contact your department manager.</p>
+                            <p style="color: #666; font-size: 12px;">This is an automated notification from your enterprise management system.</p>
+                        </div>
+                    `
+                });
+                console.log(`Sent welcome email to ${email || userData.email}`);
+            } catch (emailError) {
+                // Don't fail the entire operation if email sending fails
+                console.error('Error sending welcome email:', emailError);
+            }
+        }
+        
         res.status(201).send({
             success: true,
             message: 'Employee added successfully',
-            employee: responseData
+            employee: responseData,
+            team: teamData
         });
     } catch (error) {
         sendError(res, 500, 'Error adding employee', error);
