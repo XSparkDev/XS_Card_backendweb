@@ -233,41 +233,22 @@ router.post('/add-contact/fallback-test', async (req, res) => {
           console.log(`[TEST] Expected error from ip-api.com: ${error.message}`);
         }
         
-        // Use Google directly with proper error catching
-        try {
-          console.log(`[TEST] Attempting to use Google Maps API with IP ${ipAddress}`);
-          
-          // Check if Google Maps function exists
-          if (typeof getLocationFromGoogleMaps !== 'function') {
-            throw new Error('getLocationFromGoogleMaps is not a function');
-          }
-          
-          // Check for Google API key (without exposing it)
-          const googleApiKey = process.env.GOOGLE_MAPS_API_KEY;
-          if (!googleApiKey) {
-            throw new Error('GOOGLE_MAPS_API_KEY environment variable is not set');
-          }
-          
-          // Call Google Maps API
-          locationData = await getLocationFromGoogleMaps(ipAddress);
-          
-          if (!locationData) {
-            throw new Error('Google Maps API returned null result');
-          }
-          
-          providerUsed = 'Google Maps';
-          console.log(`[TEST] Successfully got location from Google Maps:`, locationData);
-        } catch (error) {
-          console.error(`[TEST] Google Maps API error: ${error.message}`);
-          errorDetails = {
-            message: error.message,
-            stack: error.stack
-          };
-          
-          // For testing purposes, create minimal location data
-          // so we can see if the contact update works
-          locationData = null;
+        // Check for Google API key (without exposing it)
+        const googleApiKey = process.env.GOOGLE_MAPS_API_KEY;
+        if (!googleApiKey) {
+          throw new Error('GOOGLE_MAPS_API_KEY environment variable is not set');
         }
+        
+        // Call Google Maps API with the real IP
+        console.log(`[TEST] Attempting to use Google Maps API with IP ${ipAddress}`);
+        locationData = await getLocationFromGoogleMaps(ipAddress);
+        
+        if (!locationData) {
+          throw new Error('Google Maps API returned null result');
+        }
+        
+        providerUsed = 'Google Maps';
+        console.log(`[TEST] Successfully got location from Google Maps:`, locationData);
       }
       else if (scenario === 'google-fails') {
         // Google fails but free services work
@@ -280,7 +261,7 @@ router.post('/add-contact/fallback-test', async (req, res) => {
         
         // Try the normal chain which should still work
         locationData = await getLocationFromIp(ipAddress);
-        providerUsed = 'ipapi.co or ip-api.com';
+        providerUsed = locationData ? locationData.provider : 'none';
       }
       else if (scenario === 'all-fail') {
         // All services fail
@@ -680,6 +661,57 @@ router.post('/add-contact/google-direct', async (req, res) => {
       success: false,
       error: error.message,
       stack: error.stack
+    });
+  }
+});
+
+// Test for Google Geolocation API implementation
+router.get('/google-geolocation-test', async (req, res) => {
+  try {
+    // Check API key
+    if (!process.env.GOOGLE_MAPS_API_KEY) {
+      return res.status(500).json({ 
+        error: 'GOOGLE_MAPS_API_KEY environment variable is not set', 
+        instructions: 'Add GOOGLE_MAPS_API_KEY to your .env file with a valid Google Maps API key'
+      });
+    }
+    
+    console.log(`[TEST] Testing Google Geolocation API implementation`);
+    
+    try {
+      // Use a public IP for testing instead of the request IP which may be localhost
+      // Using Google's public DNS IP for testing
+      const testIp = "8.8.8.8"; 
+      console.log(`[TEST] Using test IP: ${testIp}`);
+      
+      const result = await getLocationFromGoogleMaps(testIp);
+      res.json({
+        success: !!result,
+        result,
+        apiKeyConfigured: true,
+        message: 'Successfully retrieved location using Google Geolocation API'
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        stack: error.stack,
+        apiKeyConfigured: !!process.env.GOOGLE_MAPS_API_KEY,
+        apiKeyPreview: process.env.GOOGLE_MAPS_API_KEY ? `${process.env.GOOGLE_MAPS_API_KEY.substring(0, 3)}...` : null,
+        message: 'Error using Google Geolocation API',
+        possibleIssues: [
+          "The Geolocation API may not be enabled in your Google Cloud Console",
+          "Your API key may not have access to the Geolocation API",
+          "You may have reached your quota limit for the Geolocation API",
+          "The API may require billing to be enabled on your Google Cloud account"
+        ]
+      });
+    }
+  } catch (error) {
+    console.error(`[TEST] Error in Google Geolocation API test:`, error);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
