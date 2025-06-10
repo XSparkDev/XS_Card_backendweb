@@ -1,5 +1,6 @@
 const { db, admin } = require('../../firebase.js');
 const { sendMailWithStatus } = require('../../public/Utils/emailService');
+const { invalidateEnterpriseCache } = require('./contactAggregationController'); // PHASE 5: Cache invalidation
 
 // Helper function for standardized error responses
 const sendError = (res, status, message, error = null) => {
@@ -1192,13 +1193,21 @@ exports.addEmployee = async (req, res) => {
                 console.error('Error sending welcome email:', emailError);
             }
         }
-        
-        res.status(201).send({
+          res.status(201).send({
             success: true,
             message: 'Employee added successfully',
             employee: responseData,
             team: teamData
         });
+        
+        // PHASE 5: Cache invalidation for employee addition
+        try {
+            invalidateEnterpriseCache(enterpriseId);
+            console.log(`Cache invalidated for enterprise ${enterpriseId} due to employee addition`);
+        } catch (cacheError) {
+            console.error('Cache invalidation error after employee addition:', cacheError);
+        }
+        
     } catch (error) {
         sendError(res, 500, 'Error adding employee', error);
     }
@@ -1269,12 +1278,20 @@ exports.updateEmployee = async (req, res) => {
             createdAt: updatedData.createdAt.toDate().toISOString(),
             updatedAt: updatedData.updatedAt.toDate().toISOString()
         };
-        
-        res.status(200).send({
+          res.status(200).send({
             success: true,
             message: 'Employee updated successfully',
             employee: responseData
         });
+        
+        // PHASE 5: Cache invalidation for employee update
+        try {
+            invalidateEnterpriseCache(enterpriseId);
+            console.log(`Cache invalidated for enterprise ${enterpriseId} due to employee update`);
+        } catch (cacheError) {
+            console.error('Cache invalidation error after employee update:', cacheError);
+        }
+        
     } catch (error) {
         sendError(res, 500, 'Error updating employee', error);
     }
@@ -1349,13 +1366,21 @@ exports.deleteEmployee = async (req, res) => {
             // Note: We're not deleting the card or user account
             // This allows the user to remain in the system even if no longer an employee
         });
-        
-        res.status(200).send({
+          res.status(200).send({
             success: true,
             message: 'Employee deleted successfully',
             employeeId,
             departmentId
         });
+        
+        // PHASE 5: Cache invalidation for employee deletion
+        try {
+            invalidateEnterpriseCache(enterpriseId);
+            console.log(`Cache invalidated for enterprise ${enterpriseId} due to employee deletion`);
+        } catch (cacheError) {
+            console.error('Cache invalidation error after employee deletion:', cacheError);
+        }
+        
     } catch (error) {
         console.error('Error deleting employee:', error);
         sendError(res, 500, 'Error deleting employee', error);

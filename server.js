@@ -9,13 +9,17 @@ const https = require('https');
 const cors = require('cors');
 const { db, admin } = require('./firebase.js');
 const { sendMailWithStatus } = require('./public/Utils/emailService');
+const { invalidateEnterpriseCache } = require('./controllers/enterprise/contactAggregationController');
 const app = express();
 const port = 8383;
 
 // Configure CORS
 const corsOptions = {
-//   origin: 'http://localhost:5173',
-  origin: '*',
+  // For production, replace with your actual frontend domains
+  // origin: ['https://your-frontend-domain.com', 'https://www.your-frontend-domain.com'],
+  origin: process.env.NODE_ENV === 'production' 
+    ? process.env.ALLOWED_ORIGINS?.split(',') || ['https://your-frontend-domain.com']
+    : '*', // Allow all origins in development
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'userid'],
   credentials: true
@@ -68,61 +72,27 @@ app.use('/', subscriptionRoutes);
 // Location analytics routes
 app.use('/api', locationRoutes);
 
-// Test location routes
-const testLocationRoutes = require('./tests/test-location');
-app.use('/test', testLocationRoutes);
+// NOTE: Test endpoints removed for production deployment
+// If you need to re-enable test endpoints for development:
+// 1. Uncomment the test route lines below
+// 2. Ensure NODE_ENV !== 'production'
+// 3. Remove before deploying to production
 
-// Test endpoint for location lookup
-app.get('/api/test-location/:ip', async (req, res) => {
-  const ip = req.params.ip;
-  try {
-    console.log(`[Test] Testing location lookup for IP: ${ip}`);
-    const { getLocationFromIp } = require('./locationService');
-    const location = await getLocationFromIp(ip);
-    console.log(`[Test] Location lookup result:`, location);
-    res.json({ success: !!location, location });
-  } catch (error) {
-    console.error(`[Test] Error testing location:`, error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Test endpoint to check location data storage for a user
-app.get('/api/test-user-locations/:userId', async (req, res) => {
-  try {
-    const userId = req.params.userId;
-    console.log(`[Test] Checking stored location data for user: ${userId}`);
-    
-    const contactRef = db.collection('contacts').doc(userId);
-    const doc = await contactRef.get();
-    
-    if (!doc.exists) {
-      return res.status(404).json({ error: 'No contacts found for this user' });
-    }
-    
-    const contactList = doc.data().contactList || [];
-    
-    // Count contacts with location data
-    const contactsWithLocation = contactList.filter(contact => contact.location);
-    
-    // Extract location data for display
-    const locationData = contactsWithLocation.map((contact, index) => ({
-      contactIndex: contactList.indexOf(contact),
-      name: `${contact.name || ''} ${contact.surname || ''}`.trim(),
-      location: contact.location
-    }));
-    
-    res.json({
-      userId,
-      totalContacts: contactList.length,
-      contactsWithLocation: contactsWithLocation.length,
-      locationData
-    });
-  } catch (error) {
-    console.error(`[Test] Error checking user locations:`, error);
-    res.status(500).json({ error: error.message });
-  }
-});
+// Development-only test endpoints (commented out for production)
+/*
+if (process.env.NODE_ENV !== 'production') {
+  const testLocationRoutes = require('./tests/test-location');
+  app.use('/test', testLocationRoutes);
+  
+  app.get('/api/test-location/:ip', async (req, res) => {
+    // Test endpoint implementation...
+  });
+  
+  app.get('/api/test-user-locations/:userId', async (req, res) => {
+    // Test endpoint implementation...
+  });
+}
+*/
 
 // Serve the password setup page
 app.get('/set-password', (req, res) => {
@@ -242,12 +212,22 @@ app.post('/AddContact', enrichContactWithIp, async (req, res) => {
             createdAt: admin.firestore.Timestamp.now()
         };
 
-        currentContacts.push(newContact);
-
-        await contactRef.set({
+        currentContacts.push(newContact);        await contactRef.set({
             userId: db.doc(`users/${userId}`),
             contactList: currentContacts
         }, { merge: true });
+        
+        // PHASE 3: Cache invalidation for enterprise contact aggregation
+        if (userData.enterpriseRef) {
+            try {
+                const enterpriseId = userData.enterpriseRef.id;
+                invalidateEnterpriseCache(enterpriseId);
+                console.log(`Cache invalidated for enterprise ${enterpriseId} due to contact addition by user ${userId}`);
+            } catch (cacheError) {
+                // Don't fail the contact save if cache invalidation fails
+                console.error('Cache invalidation error:', cacheError);
+            }
+        }
         
         // Process location data
         const contactIndex = currentContacts.length - 1;
@@ -335,15 +315,25 @@ app.post('/saveContact', async (req, res) => {
             phone: contactInfo.phone,
             howWeMet: contactInfo.howWeMet,
             createdAt: admin.firestore.Timestamp.now()
-        });
-
-        await contactsRef.set({
+        });        await contactsRef.set({
             contactList: contactList
         }, { merge: true });
 
         const userRef = db.collection('users').doc(userId);
         const userDoc = await userRef.get();
         const userData = userDoc.data();
+
+        // PHASE 3: Cache invalidation for enterprise contact aggregation
+        if (userData && userData.enterpriseRef) {
+            try {
+                const enterpriseId = userData.enterpriseRef.id;
+                invalidateEnterpriseCache(enterpriseId);
+                console.log(`Cache invalidated for enterprise ${enterpriseId} due to contact addition via saveContact by user ${userId}`);
+            } catch (cacheError) {
+                // Don't fail the contact save if cache invalidation fails
+                console.error('Cache invalidation error:', cacheError);
+            }
+        }
 
         if (userData && userData.email) {
             const mailOptions = {
