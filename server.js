@@ -9,13 +9,17 @@ const https = require('https');
 const cors = require('cors');
 const { db, admin } = require('./firebase.js');
 const { sendMailWithStatus } = require('./public/Utils/emailService');
+const { invalidateEnterpriseCache } = require('./controllers/enterprise/contactAggregationController');
 const app = express();
 const port = 8383;
 
 // Configure CORS
 const corsOptions = {
-//   origin: 'http://localhost:5173',
-  origin: '*',
+  // For production, replace with your actual frontend domains
+  // origin: ['https://your-frontend-domain.com', 'https://www.your-frontend-domain.com'],
+  origin: process.env.NODE_ENV === 'production' 
+    ? process.env.ALLOWED_ORIGINS?.split(',') || ['https://your-frontend-domain.com']
+    : '*', // Allow all origins in development
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'userid'],
   credentials: true
@@ -32,6 +36,10 @@ const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const departmentsRoutes = require('./routes/departmentsRoutes');
 const activityLogRoutes = require('./routes/activityLogRoutes');
 const enterpriseRoutes = require('./routes/enterpriseRoutes');
+const locationRoutes = require('./routes/locationRoutes');
+
+// Location tracking middleware
+const { enrichContactWithIp, processContactLocation, getClientIp } = require('./contactMiddleware');
 
 // Configure multer for file upload
 const storage = multer.diskStorage({
@@ -60,6 +68,31 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/', paymentRoutes);
 app.use('/', subscriptionRoutes);
+
+// Location analytics routes
+app.use('/api', locationRoutes);
+
+// NOTE: Test endpoints removed for production deployment
+// If you need to re-enable test endpoints for development:
+// 1. Uncomment the test route lines below
+// 2. Ensure NODE_ENV !== 'production'
+// 3. Remove before deploying to production
+
+// Development-only test endpoints (commented out for production)
+/*
+if (process.env.NODE_ENV !== 'production') {
+  const testLocationRoutes = require('./tests/test-location');
+  app.use('/test', testLocationRoutes);
+  
+  app.get('/api/test-location/:ip', async (req, res) => {
+    // Test endpoint implementation...
+  });
+  
+  app.get('/api/test-user-locations/:userId', async (req, res) => {
+    // Test endpoint implementation...
+  });
+}
+*/
 
 // Serve the password setup page
 app.get('/set-password', (req, res) => {
@@ -131,7 +164,7 @@ app.get('/saveContact', (req, res) => {
 });
 
 // Add the AddContact endpoint directly to server.js
-app.post('/AddContact', async (req, res) => {
+app.post('/AddContact', enrichContactWithIp, async (req, res) => {
     const { userId, contactInfo } = req.body;
     
     console.log('Add Contact called - Public endpoint in server.js');
@@ -179,12 +212,31 @@ app.post('/AddContact', async (req, res) => {
             createdAt: admin.firestore.Timestamp.now()
         };
 
-        currentContacts.push(newContact);
-
-        await contactRef.set({
+        currentContacts.push(newContact);        await contactRef.set({
             userId: db.doc(`users/${userId}`),
             contactList: currentContacts
         }, { merge: true });
+        
+        // PHASE 3: Cache invalidation for enterprise contact aggregation
+        if (userData.enterpriseRef) {
+            try {
+                const enterpriseId = userData.enterpriseRef.id;
+                invalidateEnterpriseCache(enterpriseId);
+                console.log(`Cache invalidated for enterprise ${enterpriseId} due to contact addition by user ${userId}`);
+            } catch (cacheError) {
+                // Don't fail the contact save if cache invalidation fails
+                console.error('Cache invalidation error:', cacheError);
+            }
+        }
+        
+        // Process location data
+        const contactIndex = currentContacts.length - 1;
+        const ipAddress = req._locationMetadata?.ipAddress;
+        
+        // Queue location lookup in background
+        if (ipAddress) {
+            processContactLocation(userId, contactIndex, ipAddress);
+        }
         
         if (userData.email) {
             const mailOptions = {
@@ -263,15 +315,25 @@ app.post('/saveContact', async (req, res) => {
             phone: contactInfo.phone,
             howWeMet: contactInfo.howWeMet,
             createdAt: admin.firestore.Timestamp.now()
-        });
-
-        await contactsRef.set({
+        });        await contactsRef.set({
             contactList: contactList
         }, { merge: true });
 
         const userRef = db.collection('users').doc(userId);
         const userDoc = await userRef.get();
         const userData = userDoc.data();
+
+        // PHASE 3: Cache invalidation for enterprise contact aggregation
+        if (userData && userData.enterpriseRef) {
+            try {
+                const enterpriseId = userData.enterpriseRef.id;
+                invalidateEnterpriseCache(enterpriseId);
+                console.log(`Cache invalidated for enterprise ${enterpriseId} due to contact addition via saveContact by user ${userId}`);
+            } catch (cacheError) {
+                // Don't fail the contact save if cache invalidation fails
+                console.error('Cache invalidation error:', cacheError);
+            }
+        }
 
         if (userData && userData.email) {
             const mailOptions = {

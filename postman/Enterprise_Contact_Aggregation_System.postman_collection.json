@@ -1,0 +1,814 @@
+{
+  "info": {
+    "name": "XS Card Enterprise Contact Aggregation System",
+    "description": "Complete test collection for the enterprise contact aggregation caching system with performance optimization",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8383",
+      "description": "Base URL for the XS Card backend API"
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "description": "Authentication token for protected endpoints"
+    },    {
+      "key": "enterpriseId",
+      "value": "PegXyjZYojbLudlmOmDf",
+      "description": "Your actual enterprise ID"
+    },
+    {
+      "key": "departmentId",
+      "value": "sales",
+      "description": "Sales department for testing"
+    },
+    {
+      "key": "userId",
+      "value": "FTJiYeSOJu6FAfptjEdn",
+      "description": "Billy Tecsmax user ID for testing"
+    }
+  ],
+  "item": [
+    {
+      "name": "Phase 1 & 2: Core Caching System",
+      "item": [
+        {
+          "name": "1. Enterprise Contact Summary (Cache Miss)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "contacts",
+                "summary"
+              ]
+            },
+            "description": "First call - triggers expensive calculation and cache population. Expected response time: 5-10 seconds."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Enterprise Contact Summary (Cache Hit)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "contacts",
+                "summary"
+              ]
+            },
+            "description": "Second call - serves from cache. Expected response time: 0.01 seconds (500x faster)."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Department Contact Summary (Cache Miss)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/contacts/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "departments",
+                "{{departmentId}}",
+                "contacts",
+                "summary"
+              ]
+            },
+            "description": "Department-level aggregation - first call triggers calculation."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Department Contact Summary (Cache Hit)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/contacts/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "departments",
+                "{{departmentId}}",
+                "contacts",
+                "summary"
+              ]
+            },
+            "description": "Department-level aggregation - second call serves from cache."
+          },
+          "response": []        },
+        {
+          "name": "5. Enterprise Contact Details (Cache Miss)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/details",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "contacts",
+                "details"
+              ]
+            },
+            "description": "Get all contacts with full details across the entire enterprise - first call calculates and caches results."
+          },
+          "response": []
+        },
+        {
+          "name": "6. Enterprise Contact Details (Cache Hit)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/details",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "contacts",
+                "details"
+              ]
+            },
+            "description": "Enterprise-level detailed contacts - second call serves from cache with full contact information."
+          },
+          "response": []
+        },
+        {
+          "name": "7. Department Contact Details (Cache Miss)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/contacts/details",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "departments",
+                "{{departmentId}}",
+                "contacts",
+                "details"
+              ]
+            },
+            "description": "Get contacts with full details for a specific department - first call calculates and caches results."
+          },
+          "response": []
+        },
+        {
+          "name": "8. Department Contact Details (Cache Hit)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/contacts/details",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "departments",
+                "{{departmentId}}",
+                "contacts",
+                "details"
+              ]
+            },
+            "description": "Department-level detailed contacts - second call serves from cache with full contact information."
+          },
+          "response": []
+        }
+      ],
+      "description": "Core caching functionality with 500x performance improvement including detailed contact endpoints"
+    },
+    {
+      "name": "Phase 3: Cache Invalidation Testing",
+      "item": [
+        {
+          "name": "1. Add New Contact (Triggers Cache Invalidation)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"contactInfo\": {\n    \"name\": \"Test\",\n    \"surname\": \"Contact\",\n    \"email\": \"test@example.com\",\n    \"phone\": \"+1234567890\",\n    \"company\": \"Test Company\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/AddContact",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "AddContact"
+              ]
+            },
+            "description": "Adding a contact should invalidate enterprise cache if user belongs to enterprise. Check logs for cache invalidation message."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Verify Cache Invalidation (Cache Miss Again)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "contacts",
+                "summary"
+              ]
+            },
+            "description": "This should be slow again (cache miss) because cache was invalidated by contact addition."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Save Contact (Alternative Endpoint)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"contactInfo\": {\n    \"name\": \"Another\",\n    \"surname\": \"Contact\",\n    \"email\": \"another@example.com\",\n    \"phone\": \"+1987654321\",\n    \"company\": \"Another Company\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/saveContact",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "saveContact"
+              ]
+            },
+            "description": "Alternative contact saving endpoint that also triggers cache invalidation."
+          },
+          "response": []
+        }
+      ],
+      "description": "Tests cache invalidation when contacts are added"
+    },
+    {
+      "name": "Phase 4: Cache Management & Monitoring",
+      "item": [
+        {
+          "name": "1. Get Cache Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cache",
+                "stats"
+              ]
+            },
+            "description": "Get cache performance metrics including hit/miss ratios, entry counts, and memory usage."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Clear All Cache",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/clear",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cache",
+                "clear"
+              ]
+            },
+            "description": "Admin endpoint to clear all cached data. Useful for debugging and testing."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Test Concurrent Requests Protection",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "contacts",
+                "summary"
+              ]
+            },
+            "description": "Make multiple simultaneous requests to test concurrent protection (run multiple times quickly)."
+          },
+          "response": []
+        }
+      ],
+      "description": "Cache monitoring and management features"
+    },
+    {
+      "name": "Phase 5: Employee Lifecycle & Advanced Invalidation",
+      "item": [
+        {
+          "name": "1. Add Employee (Triggers Cache Invalidation)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"name\": \"New\",\n  \"surname\": \"Employee\",\n  \"email\": \"new.employee@company.com\",\n  \"phone\": \"+1555000123\",\n  \"position\": \"Developer\",\n  \"role\": \"employee\",\n  \"isActive\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/employees",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "departments",
+                "{{departmentId}}",
+                "employees"
+              ]
+            },
+            "description": "Adding an employee should trigger cache invalidation for the enterprise."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Update Employee (Triggers Cache Invalidation)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"name\": \"Updated\",\n  \"surname\": \"Employee\",\n  \"position\": \"Senior Developer\",\n  \"role\": \"manager\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/employees/{{employeeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "departments",
+                "{{departmentId}}",
+                "employees",
+                "{{employeeId}}"
+              ]
+            },
+            "description": "Updating an employee should trigger cache invalidation."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Clear All Department Caches",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/departments/clear",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cache",
+                "departments",
+                "clear"
+              ]
+            },
+            "description": "Batch invalidation of all department-level caches across all enterprises."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Warm Cache for Multiple Enterprises",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"enterpriseIds\": [\n    \"{{enterpriseId}}\",\n    \"enterprise-2-id\",\n    \"enterprise-3-id\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/cache/warm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cache",
+                "warm"
+              ]
+            },
+            "description": "Preload cache for multiple enterprises to improve performance."
+          },
+          "response": []
+        }
+      ],
+      "description": "Advanced cache management with employee lifecycle integration"
+    },
+    {
+      "name": "Phase 6: Configuration & Analytics",
+      "item": [
+        {
+          "name": "1. Get Current Cache Configuration",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cache",
+                "config"
+              ]
+            },
+            "description": "Retrieve current cache configuration including TTL settings."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Update Cache TTL Settings",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"ttlSettings\": {\n    \"enterprise\": 7200000,\n    \"department\": 3600000,\n    \"default\": 1800000\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/cache/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cache",
+                "config"
+              ]
+            },
+            "description": "Update cache TTL settings at runtime. Values are in milliseconds."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Get Advanced Cache Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/analytics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cache",
+                "analytics"
+              ]
+            },
+            "description": "Get detailed cache analytics including access patterns, TTL distribution, and performance metrics."
+          },
+          "response": []
+        }
+      ],
+      "description": "Runtime configuration and advanced analytics"
+    },
+    {
+      "name": "Performance Test Scenarios",
+      "item": [
+        {
+          "name": "1. Performance Comparison - Before Cache",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/clear",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cache",
+                "clear"
+              ]
+            },
+            "description": "Step 1: Clear cache to simulate cold start"
+          },
+          "response": []
+        },
+        {
+          "name": "2. Performance Comparison - Cold Cache (5-10 seconds)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "contacts",
+                "summary"
+              ]
+            },
+            "description": "Step 2: Make request with cold cache - measure response time (should be 5-10 seconds)"
+          },
+          "response": []
+        },
+        {
+          "name": "3. Performance Comparison - Warm Cache (0.01 seconds)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "contacts",
+                "summary"
+              ]
+            },
+            "description": "Step 3: Make same request with warm cache - measure response time (should be ~0.01 seconds)"
+          },
+          "response": []
+        },
+        {
+          "name": "4. Load Test - Multiple Rapid Requests",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "enterprise",
+                "{{enterpriseId}}",
+                "contacts",
+                "summary"
+              ]
+            },
+            "description": "Run this multiple times rapidly to test concurrent request protection and cache performance"
+          },
+          "response": []
+        }      ],
+      "description": "Performance testing and comparison scenarios"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-set timestamp for cache testing",
+          "pm.globals.set('timestamp', new Date().toISOString());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Common response tests",
+          "pm.test('Response time is acceptable', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(15000); // 15 seconds max",
+          "});",
+          "",
+          "pm.test('Response has valid JSON structure', function () {",
+          "    pm.response.to.have.jsonBody();",
+          "});",
+          "",
+          "// Performance comparison logging",
+          "if (pm.request.url.path.includes('contacts/summary')) {",
+          "    console.log(`Request: ${pm.request.name}`);",
+          "    console.log(`Response Time: ${pm.response.responseTime}ms`);",
+          "    console.log(`Status: ${pm.response.status}`);",
+          "    ",
+          "    if (pm.response.responseTime < 100) {",
+          "        console.log('✅ CACHE HIT - Excellent performance!');",
+          "    } else if (pm.response.responseTime > 3000) {",
+          "        console.log('🔄 CACHE MISS - Expected for first call');",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ]
+}
