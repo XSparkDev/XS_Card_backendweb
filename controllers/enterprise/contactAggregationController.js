@@ -313,9 +313,7 @@ exports.getEnterpriseContactsSummary = async (req, res) => {
             }
             
             throw calculationError;
-        }
-
-    } catch (error) {
+        }    } catch (error) {
         console.error('Error getting enterprise contacts summary:', error);
         
         // PHASE 4: Final error handling with graceful degradation
@@ -323,7 +321,7 @@ exports.getEnterpriseContactsSummary = async (req, res) => {
             success: false,
             message: 'Error retrieving enterprise contacts summary',
             error: error.message,
-            enterpriseId,
+            enterpriseId: req.params.enterpriseId,
             timestamp: new Date().toISOString(),
             fallback: {
                 available: false,
@@ -897,6 +895,179 @@ exports.getDepartmentContactsWithDetails = async (req, res) => {
         sendError(res, 500, 'Error fetching department contact details', error);
     }
 };
+
+/**
+ * Expensive calculation: Get enterprise contacts summary (counts only)
+ */
+async function calculateEnterpriseContactsSummary(enterpriseId) {
+    console.log(`Starting summary calculation for enterprise ${enterpriseId}`);
+    const startTime = Date.now();
+    
+    // Step 1: Verify enterprise exists
+    const enterpriseRef = db.collection('enterprise').doc(enterpriseId);
+    const enterpriseDoc = await enterpriseRef.get();
+    
+    if (!enterpriseDoc.exists) {
+        throw new Error('Enterprise not found');
+    }
+
+    const enterpriseData = enterpriseDoc.data();
+
+    // Step 2: Get all departments
+    const departmentsSnapshot = await enterpriseRef.collection('departments').get();
+    
+    if (departmentsSnapshot.empty) {
+        return {
+            enterpriseId,
+            enterpriseName: enterpriseData.name,
+            totalContacts: 0,
+            totalEmployees: 0,
+            totalDepartments: 0,
+            departments: [],
+            calculationTime: Date.now() - startTime
+        };
+    }
+
+    // Step 3: Get summary data for each department
+    const departmentSummaries = [];
+    let totalContacts = 0;
+    let totalEmployees = 0;
+
+    for (const deptDoc of departmentsSnapshot.docs) {
+        const departmentId = deptDoc.id;
+        const deptData = deptDoc.data();
+        
+        // Get employees in this department
+        const employeesSnapshot = await deptDoc.ref.collection('employees').get();
+        let departmentContactCount = 0;
+
+        for (const empDoc of employeesSnapshot.docs) {
+            const empData = empDoc.data();
+            const userId = empData.userId?.id;
+            
+            if (userId) {
+                try {
+                    const contactsRef = db.collection('contacts').doc(userId);
+                    const contactsDoc = await contactsRef.get();
+                    
+                    if (contactsDoc.exists && contactsDoc.data().contactList) {
+                        const contactCount = contactsDoc.data().contactList.length || 0;
+                        departmentContactCount += contactCount;
+                    }
+                } catch (contactError) {
+                    console.error(`Error fetching contacts for employee ${empDoc.id}:`, contactError);
+                }
+            }
+        }
+
+        const departmentSummary = {
+            departmentId,
+            departmentName: deptData.name || '',
+            totalContacts: departmentContactCount,
+            totalEmployees: employeesSnapshot.size
+        };
+
+        departmentSummaries.push(departmentSummary);
+        totalContacts += departmentContactCount;
+        totalEmployees += employeesSnapshot.size;
+    }
+
+    const result = {
+        enterpriseId,
+        enterpriseName: enterpriseData.name,
+        totalContacts,
+        totalEmployees,
+        totalDepartments: departmentsSnapshot.size,
+        departments: departmentSummaries,
+        calculationTime: Date.now() - startTime
+    };
+
+    console.log(`Enterprise ${enterpriseId} summary calculation completed in ${result.calculationTime}ms`);
+    return result;
+}
+
+/**
+ * Expensive calculation: Get department contacts summary (counts only)
+ */
+async function calculateDepartmentContactsSummary(enterpriseId, departmentId) {
+    console.log(`Starting summary calculation for department ${departmentId} in enterprise ${enterpriseId}`);
+    const startTime = Date.now();
+    
+    // Step 1: Get department info
+    const deptRef = db.collection('enterprise')
+        .doc(enterpriseId)
+        .collection('departments')
+        .doc(departmentId);
+    
+    const deptDoc = await deptRef.get();
+    if (!deptDoc.exists) {
+        throw new Error('Department not found');
+    }
+
+    const deptData = deptDoc.data();
+
+    // Step 2: Get all employees in this department
+    const employeesSnapshot = await deptRef.collection('employees').get();
+    
+    if (employeesSnapshot.empty) {
+        return {
+            departmentId,
+            departmentName: deptData.name || '',
+            totalContacts: 0,
+            totalEmployees: 0,
+            employees: [],
+            calculationTime: Date.now() - startTime
+        };
+    }
+
+    // Step 3: Count contacts for each employee
+    const employeeSummaries = [];
+    let totalContacts = 0;
+
+    for (const empDoc of employeesSnapshot.docs) {
+        const empData = empDoc.data();
+        const userId = empData.userId?.id;
+        let contactCount = 0;
+
+        if (userId) {
+            try {
+                const contactsRef = db.collection('contacts').doc(userId);
+                const contactsDoc = await contactsRef.get();
+                
+                if (contactsDoc.exists && contactsDoc.data().contactList) {
+                    contactCount = contactsDoc.data().contactList.length || 0;
+                }
+            } catch (contactError) {
+                console.error(`Error fetching contacts for employee ${empDoc.id}:`, contactError);
+            }
+        }
+
+        const employeeSummary = {
+            employeeId: empDoc.id,
+            userId: userId,
+            name: `${empData.firstName || ''} ${empData.lastName || ''}`.trim(),
+            firstName: empData.firstName || '',
+            lastName: empData.lastName || '',
+            email: empData.email || '',
+            contactCount: contactCount
+        };
+
+        employeeSummaries.push(employeeSummary);
+        totalContacts += contactCount;
+    }
+
+    const result = {
+        departmentId,
+        departmentName: deptData.name || '',
+        totalContacts,
+        totalEmployees: employeesSnapshot.size,
+        employees: employeeSummaries,
+        calculationTime: Date.now() - startTime
+    };
+
+    console.log(`Department ${departmentId} summary calculation completed in ${result.calculationTime}ms`);
+    return result;
+}
 
 /**
  * Expensive calculation: Get all contacts with details for an enterprise
