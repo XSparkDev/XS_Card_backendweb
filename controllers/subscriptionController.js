@@ -1,6 +1,6 @@
 const https = require('https');
 const { db, admin } = require('../firebase.js');
-const { SUBSCRIPTION_PLANS, SUBSCRIPTION_CONSTANTS, getPlanById } = require('../config/subscriptionPlans');
+const { SUBSCRIPTION_PLANS, SUBSCRIPTION_CONSTANTS, getPlanById, getPlanByCode } = require('../config/subscriptionPlans');
 const { logActivity, ACTIONS, RESOURCES } = require('../utils/logger');
 
 /**
@@ -868,7 +868,7 @@ const getSubscriptionPlans = (req, res) => {
 };
 
 /**
- * Get user's subscription status
+ * Get user's comprehensive subscription status
  */
 const getSubscriptionStatus = async (req, res) => {
     try {
@@ -879,31 +879,110 @@ const getSubscriptionStatus = async (req, res) => {
         
         if (!userDoc.exists) {
             return res.status(404).json({
-                status: false,
+                success: false,
                 message: 'User not found'
             });
         }
         
         const userData = userDoc.data();
         
-        // Return subscription status info
-        res.status(200).json({
-            status: true,
-            data: {
-                subscriptionStatus: userData.subscriptionStatus || 'none',
-                subscriptionPlan: userData.subscriptionPlan || null,
-                trialStartDate: userData.trialStartDate || null,
-                trialEndDate: userData.trialEndDate || null,
-                isActive: ['trial', 'active'].includes(userData.subscriptionStatus || 'none')
+        // Get subscription data
+        const subscriptionRef = db.collection('subscriptions').doc(userId);
+        const subscriptionDoc = await subscriptionRef.get();
+        const subscriptionData = subscriptionDoc.exists ? subscriptionDoc.data() : {};
+        
+        // Determine subscription plan details
+        let planDetails = null;
+        let subscriptionPlan = 'free';
+        
+        if (userData.plan === 'premium' || userData.subscriptionStatus === 'active' || userData.subscriptionStatus === 'trial') {
+            // Check if monthly or annual based on subscription plan ID or plan code
+            const planId = userData.subscriptionPlan || subscriptionData.planId;
+            if (planId) {
+                const plan = getPlanById(planId);
+                if (plan) {
+                    planDetails = plan;
+                    subscriptionPlan = plan.interval === 'annually' ? 'premium_annual' : 'premium_monthly';
+                }
+            } else if (subscriptionData.planCode) {
+                // Fallback to plan code lookup
+                const plan = getPlanByCode(subscriptionData.planCode);
+                if (plan) {
+                    planDetails = plan;
+                    subscriptionPlan = plan.interval === 'annually' ? 'premium_annual' : 'premium_monthly';
+                }
             }
-        });
+        }
+        
+        // Calculate subscription dates and status
+        const now = new Date();
+        const isActive = userData.subscriptionStatus === 'active' || userData.subscriptionStatus === 'trial';
+        
+        // Get current contact count
+        const currentContactCount = await getCurrentContactCount(userId);
+        
+        // Build comprehensive response
+        const response = {
+            success: true,
+            data: {
+                subscriptionStatus: userData.subscriptionStatus || 'free',
+                subscriptionPlan: subscriptionPlan,
+                subscriptionReference: subscriptionData.reference || userData.subscriptionReference || null,
+                subscriptionStart: subscriptionData.startDate || userData.subscriptionStart || userData.trialStartDate || null,
+                subscriptionEnd: subscriptionData.endDate || userData.subscriptionEnd || null,
+                trialStartDate: userData.trialStartDate || subscriptionData.trialStartDate || null,
+                trialEndDate: userData.trialEndDate || subscriptionData.trialEndDate || null,
+                customerCode: userData.customerCode || subscriptionData.customerCode || null,
+                subscriptionCode: userData.subscriptionCode || subscriptionData.subscriptionCode || null,
+                isActive: isActive,
+                plan: userData.plan || 'free',
+                amount: planDetails?.amount || 0,
+                currency: 'ZAR',
+                // Additional useful fields
+                paymentMethod: subscriptionData.paymentMethod || null,
+                lastPaymentDate: subscriptionData.lastPaymentDate || null,
+                nextPaymentDate: subscriptionData.nextPaymentDate || null,
+                cancellationDate: userData.cancellationDate || subscriptionData.cancellationDate || null,
+                autoRenew: subscriptionData.autoRenew !== false, // Default to true unless explicitly false
+                // Contact limits and usage
+                contactLimit: userData.plan === 'free' ? 3 : 'unlimited',
+                currentContactCount: currentContactCount,
+                // Plan details
+                planDetails: planDetails ? {
+                    id: planDetails.id,
+                    name: planDetails.name,
+                    interval: planDetails.interval,
+                    description: planDetails.description
+                } : null
+            }
+        };
+        
+        res.status(200).json(response);
+        
     } catch (error) {
         console.error('Error fetching subscription status:', error);
         res.status(500).json({
-            status: false,
-            message: 'Failed to retrieve subscription status',
+            success: false,
+            message: 'Error fetching subscription status',
             error: error.message
         });
+    }
+};
+
+// Helper function to get current contact count
+const getCurrentContactCount = async (userId) => {
+    try {
+        const contactRef = db.collection('contacts').doc(userId);
+        const contactDoc = await contactRef.get();
+        
+        if (contactDoc.exists) {
+            const contactData = contactDoc.data();
+            return contactData.contactList ? contactData.contactList.length : 0;
+        }
+        return 0;
+    } catch (error) {
+        console.error('Error getting contact count:', error);
+        return 0;
     }
 };
 
