@@ -33,6 +33,7 @@ const contactRoutes = require('./routes/contactRoutes');
 const meetingRoutes = require('./routes/meetingRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
+const billingRoutes = require('./routes/billingRoutes');
 const departmentsRoutes = require('./routes/departmentsRoutes');
 const activityLogRoutes = require('./routes/activityLogRoutes');
 const enterpriseRoutes = require('./routes/enterpriseRoutes');
@@ -430,6 +431,7 @@ app.use('/', contactRoutes);
 app.use('/', meetingRoutes);
 app.use('/', departmentsRoutes);
 app.use('/', paymentRoutes);
+app.use('/', billingRoutes);
 app.use('/', activityLogRoutes); // Mount at root instead of /api/logs
 app.use('/', enterpriseRoutes);
 

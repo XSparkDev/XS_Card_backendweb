@@ -2,6 +2,7 @@ const https = require('https');
 const { db, admin } = require('../firebase.js');
 const { SUBSCRIPTION_PLANS, SUBSCRIPTION_CONSTANTS, getPlanById, getPlanByCode } = require('../config/subscriptionPlans');
 const { logActivity, ACTIONS, RESOURCES } = require('../utils/logger');
+const { storePaymentMethod } = require('./billingController');
 
 /**
  * Initialize a subscription with Paystack
@@ -422,6 +423,17 @@ const handleSubscriptionCallback = async (req, res) => {
                     interval: plan?.interval || 'unknown'
                     }
                 });
+
+                // Store payment method
+                try {
+                    if (paymentData.data.authorization) {
+                        await storePaymentMethod(userId, paymentData.data.customer.customer_code, paymentData.data.authorization);
+                        console.log('Payment method stored successfully');
+                    }
+                } catch (paymentMethodError) {
+                    console.error('Error storing payment method:', paymentMethodError);
+                    // Don't fail the subscription if payment method storage fails
+                }
             } else {
                 console.error('User not found for email:', userEmail);
             }
@@ -577,6 +589,17 @@ const handleTrialCallback = async (req, res) => {
                         trialDays: SUBSCRIPTION_CONSTANTS.TRIAL_DAYS
                     }
                 });
+
+                // Store payment method
+                try {
+                    if (paymentData.data.authorization) {
+                        await storePaymentMethod(userId, customerCode, paymentData.data.authorization);
+                        console.log('Payment method stored successfully');
+                    }
+                } catch (paymentMethodError) {
+                    console.error('Error storing payment method:', paymentMethodError);
+                    // Don't fail the subscription if payment method storage fails
+                }
             } else {
                 console.error('Failed to create delayed subscription:', subscriptionResult);
                 // Still update user with trial info but mark subscription as pending
@@ -879,7 +902,7 @@ const getSubscriptionStatus = async (req, res) => {
         
         if (!userDoc.exists) {
             return res.status(404).json({
-                success: false,
+                status: false,
                 message: 'User not found'
             });
         }
@@ -923,7 +946,7 @@ const getSubscriptionStatus = async (req, res) => {
         
         // Build comprehensive response
         const response = {
-            success: true,
+            status: true,
             data: {
                 subscriptionStatus: userData.subscriptionStatus || 'free',
                 subscriptionPlan: subscriptionPlan,
@@ -962,7 +985,7 @@ const getSubscriptionStatus = async (req, res) => {
     } catch (error) {
         console.error('Error fetching subscription status:', error);
         res.status(500).json({
-            success: false,
+            status: false,
             message: 'Error fetching subscription status',
             error: error.message
         });
@@ -1176,6 +1199,105 @@ const cancelSubscription = async (req, res) => {
     }
 };
 
+/**
+ * Update subscription plan (direct plan change without payment flow)
+ */
+const updateSubscriptionPlan = async (req, res) => {
+    try {
+        const userId = req.user.uid;
+        const { planId, reason } = req.body;
+
+        // Validate request
+        if (!planId) {
+            return res.status(400).json({
+                status: false,
+                message: 'Plan ID is required'
+            });
+        }
+
+        // Get plan details
+        const newPlan = getPlanById(planId);
+        if (!newPlan) {
+            return res.status(400).json({
+                status: false,
+                message: 'Invalid plan ID'
+            });
+        }
+
+        // Get current user data
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            return res.status(404).json({
+                status: false,
+                message: 'User not found'
+            });
+        }
+
+        const userData = userDoc.data();
+        const oldPlan = userData.subscriptionPlan || 'free';
+
+        // Update user subscription data
+        const updateData = {
+            subscriptionPlan: planId,
+            plan: 'premium',
+            subscriptionStatus: 'active',
+            lastUpdated: new Date().toISOString()
+        };
+
+        // Calculate new end date based on plan interval
+        if (newPlan.interval === 'annually') {
+            updateData.subscriptionEnd = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+        } else {
+            updateData.subscriptionEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        }
+
+        await userDoc.ref.update(updateData);
+
+        // Update subscription document
+        await db.collection('subscriptions').doc(userId).set({
+            userId: userId,
+            planId: planId,
+            status: 'active',
+            planCode: newPlan.planCode,
+            lastUpdated: new Date().toISOString(),
+            reason: reason || 'Direct plan update'
+        }, { merge: true });
+
+        // Log the plan change
+        await logActivity({
+            action: ACTIONS.UPDATE,
+            resource: RESOURCES.SUBSCRIPTION,
+            userId: userId,
+            resourceId: userId,
+            details: {
+                oldPlan: oldPlan,
+                newPlan: planId,
+                reason: reason || 'Direct plan update',
+                amount: newPlan.amount,
+                interval: newPlan.interval
+            }
+        });
+
+        res.status(200).json({
+            status: true,
+            message: 'Subscription plan updated successfully',
+            data: {
+                subscriptionCode: userData.subscriptionCode || `SUB_${userId}`,
+                newPlan: planId,
+                effectiveDate: new Date().toISOString()
+            }
+        });
+
+    } catch (error) {
+        console.error('Error updating subscription plan:', error);
+        res.status(500).json({
+            status: false,
+            message: 'Failed to update subscription plan',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     initializeSubscription,
     initializeTrialSubscription,
@@ -1185,5 +1307,6 @@ module.exports = {
     getSubscriptionPlans,
     getSubscriptionStatus,
     cancelSubscription,
-    getSubscriptionLogs
+    getSubscriptionLogs,
+    updateSubscriptionPlan
 };

@@ -22,6 +22,17 @@ router.delete('/enterprise/:enterpriseId', authenticateUser, enterpriseControlle
 // Get enterprise statistics
 router.get('/enterprise/:enterpriseId/stats', authenticateUser, enterpriseController.getEnterpriseStats);
 
+// PHASE 3: Enterprise billing endpoints
+router.get('/enterprise/invoices', authenticateUser, enterpriseController.getEnterpriseInvoices);
+router.get('/enterprise/invoices/:invoiceId/download', authenticateUser, enterpriseController.downloadInvoice);
+router.post('/enterprise/demo', authenticateUser, enterpriseController.submitDemoRequest);
+router.post('/enterprise/inquiry', authenticateUser, enterpriseController.submitEnterpriseInquiry);
+
+// Development/Testing only - Create sample invoices
+if (process.env.NODE_ENV !== 'production') {
+  router.post('/enterprise/:enterpriseId/create-sample-invoices', authenticateUser, enterpriseController.createSampleInvoices);
+}
+
 // Contact aggregation endpoints (with caching)
 router.get('/enterprise/:enterpriseId/contacts/summary', authenticateUser, contactAggregationController.getEnterpriseContactsSummary);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/contacts/summary', authenticateUser, contactAggregationController.getDepartmentContactsSummary);

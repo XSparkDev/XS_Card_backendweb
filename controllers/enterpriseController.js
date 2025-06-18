@@ -1,4 +1,5 @@
 const { db, admin } = require('../firebase');
+const { logActivity, ACTIONS, RESOURCES } = require('../utils/logger');
 
 /**
  * Get all enterprises
@@ -8,7 +9,10 @@ exports.getAllEnterprises = async (req, res) => {
     const snapshot = await db.collection('enterprise').get();
     
     if (snapshot.empty) {
-      return res.status(200).send({ enterprises: [] });
+      return res.status(200).json({ 
+        status: true,
+        data: []
+      });
     }
 
     const enterprises = snapshot.docs.map(doc => ({
@@ -16,11 +20,14 @@ exports.getAllEnterprises = async (req, res) => {
       ...doc.data()
     }));
 
-    res.status(200).send({ enterprises });
+    res.status(200).json({ 
+      status: true,
+      data: enterprises
+    });
   } catch (error) {
     console.error('Error getting enterprises:', error);
-    res.status(500).send({ 
-      success: false, 
+    res.status(500).json({ 
+      status: false, 
       message: 'Failed to get enterprises', 
       error: error.message 
     });
@@ -37,8 +44,8 @@ exports.getEnterpriseById = async (req, res) => {
     const doc = await db.collection('enterprise').doc(enterpriseId).get();
     
     if (!doc.exists) {
-      return res.status(404).send({ 
-        success: false, 
+      return res.status(404).json({ 
+        status: false, 
         message: 'Enterprise not found' 
       });
     }
@@ -48,11 +55,16 @@ exports.getEnterpriseById = async (req, res) => {
       ...doc.data()
     };
 
-    res.status(200).send({ enterprise });
+    res.status(200).json({ 
+      status: true,
+      data: {
+        enterprise
+      }
+    });
   } catch (error) {
     console.error('Error getting enterprise:', error);
-    res.status(500).send({ 
-      success: false, 
+    res.status(500).json({ 
+      status: false, 
       message: 'Failed to get enterprise', 
       error: error.message 
     });
@@ -70,8 +82,8 @@ exports.createEnterprise = async (req, res) => {
     } = req.body;
 
     if (!name) {
-      return res.status(400).send({ 
-        success: false, 
+      return res.status(400).json({ 
+        status: false, 
         message: 'Enterprise name is required' 
       });
     }
@@ -83,8 +95,8 @@ exports.createEnterprise = async (req, res) => {
     // Check if enterprise with this name already exists
     const existingDoc = await db.collection('enterprise').doc(docId).get();
     if (existingDoc.exists) {
-      return res.status(409).send({
-        success: false,
+      return res.status(409).json({
+        status: false,
         message: 'Enterprise with this name already exists'
       });
     }
@@ -112,15 +124,17 @@ exports.createEnterprise = async (req, res) => {
       updatedAt: new Date().toISOString()
     };
 
-    res.status(201).send({
-      success: true,
+    res.status(201).json({
+      status: true,
       message: 'Enterprise created successfully',
-      enterprise: newEnterprise
+      data: {
+        enterprise: newEnterprise
+      }
     });
   } catch (error) {
     console.error('Error creating enterprise:', error);
-    res.status(500).send({ 
-      success: false, 
+    res.status(500).json({ 
+      status: false, 
       message: 'Failed to create enterprise', 
       error: error.message 
     });
@@ -142,8 +156,8 @@ exports.updateEnterprise = async (req, res) => {
     const doc = await enterpriseRef.get();
 
     if (!doc.exists) {
-      return res.status(404).send({ 
-        success: false, 
+      return res.status(404).json({ 
+        status: false, 
         message: 'Enterprise not found' 
       });
     }
@@ -170,15 +184,17 @@ exports.updateEnterprise = async (req, res) => {
       updatedAt: new Date().toISOString()
     };
 
-    res.status(200).send({
-      success: true,
+    res.status(200).json({
+      status: true,
       message: 'Enterprise updated successfully',
-      enterprise: updatedEnterprise
+      data: {
+        enterprise: updatedEnterprise
+      }
     });
   } catch (error) {
     console.error('Error updating enterprise:', error);
-    res.status(500).send({ 
-      success: false, 
+    res.status(500).json({ 
+      status: false, 
       message: 'Failed to update enterprise', 
       error: error.message 
     });
@@ -196,23 +212,25 @@ exports.deleteEnterprise = async (req, res) => {
     const doc = await enterpriseRef.get();
 
     if (!doc.exists) {
-      return res.status(404).send({ 
-        success: false, 
+      return res.status(404).json({ 
+        status: false, 
         message: 'Enterprise not found' 
       });
     }
 
     await enterpriseRef.delete();
 
-    res.status(200).send({
-      success: true,
+    res.status(200).json({
+      status: true,
       message: 'Enterprise deleted successfully',
-      id: enterpriseId
+      data: {
+        id: enterpriseId
+      }
     });
   } catch (error) {
     console.error('Error deleting enterprise:', error);
-    res.status(500).send({ 
-      success: false, 
+    res.status(500).json({ 
+      status: false, 
       message: 'Failed to delete enterprise', 
       error: error.message 
     });
@@ -230,8 +248,8 @@ exports.getEnterpriseStats = async (req, res) => {
     const doc = await db.collection('enterprise').doc(enterpriseId).get();
     
     if (!doc.exists) {
-      return res.status(404).send({ 
-        success: false, 
+      return res.status(404).json({ 
+        status: false, 
         message: 'Enterprise not found' 
       });
     }
@@ -244,16 +262,432 @@ exports.getEnterpriseStats = async (req, res) => {
       lastActivity: new Date().toISOString()
     };
 
-    res.status(200).send({ 
-      success: true,
-      stats 
+    res.status(200).json({ 
+      status: true,
+      data: {
+        stats
+      }
     });
   } catch (error) {
     console.error('Error getting enterprise stats:', error);
-    res.status(500).send({ 
-      success: false, 
+    res.status(500).json({ 
+      status: false, 
       message: 'Failed to get enterprise stats', 
       error: error.message 
+    });
+  }
+};
+
+/**
+ * Get enterprise invoices (for enterprise customers)
+ */
+exports.getEnterpriseInvoices = async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    
+    // Get user's enterprise reference
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        status: false,
+        message: 'User not found'
+      });
+    }
+
+    const userData = userDoc.data();
+    const enterpriseId = userData.enterpriseRef?.id;
+
+    if (!enterpriseId) {
+      return res.status(403).json({
+        status: false,
+        message: 'User is not associated with an enterprise'
+      });
+    }
+
+    // Get enterprise invoices
+    const invoicesSnapshot = await db.collection('enterpriseInvoices')
+      .where('enterpriseId', '==', enterpriseId)
+      .orderBy('date', 'desc')
+      .get();
+
+    const invoices = [];
+    invoicesSnapshot.forEach(doc => {
+      const invoiceData = doc.data();
+      invoices.push({
+        id: doc.id,
+        waveAppsInvoiceId: invoiceData.waveAppsInvoiceId || null,
+        number: invoiceData.number,
+        date: invoiceData.date,
+        dueDate: invoiceData.dueDate,
+        amount: invoiceData.amount,
+        currency: invoiceData.currency || 'ZAR',
+        status: invoiceData.status,
+        downloadUrl: `/api/enterprise/invoices/${doc.id}/download`,
+        lineItems: invoiceData.lineItems || []
+      });
+    });
+
+    res.status(200).json({
+      status: true,
+      data: invoices
+    });
+
+  } catch (error) {
+    console.error('Error getting enterprise invoices:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Failed to retrieve enterprise invoices',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Download enterprise invoice PDF
+ */
+exports.downloadInvoice = async (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+    const userId = req.user.uid;
+
+    // Get user's enterprise reference
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        status: false,
+        message: 'User not found'
+      });
+    }
+
+    const userData = userDoc.data();
+    const enterpriseId = userData.enterpriseRef?.id;
+
+    if (!enterpriseId) {
+      return res.status(403).json({
+        status: false,
+        message: 'User is not associated with an enterprise'
+      });
+    }
+
+    // Get invoice document
+    const invoiceDoc = await db.collection('enterpriseInvoices').doc(invoiceId).get();
+    
+    if (!invoiceDoc.exists) {
+      return res.status(404).json({
+        status: false,
+        message: 'Invoice not found'
+      });
+    }
+
+    const invoiceData = invoiceDoc.data();
+
+    // Verify invoice belongs to user's enterprise
+    if (invoiceData.enterpriseId !== enterpriseId) {
+      return res.status(403).json({
+        status: false,
+        message: 'Unauthorized access to invoice'
+      });
+    }
+
+    // For now, return a placeholder response
+    // In a real implementation, you would:
+    // 1. Generate PDF using a library like puppeteer or jsPDF
+    // 2. Store PDFs in Firebase Storage
+    // 3. Return the PDF file or signed URL
+    
+    res.status(200).json({
+      status: true,
+      message: 'Invoice PDF download functionality - placeholder implementation',
+      data: {
+        invoiceId: invoiceId,
+        filename: `invoice-${invoiceData.number}.pdf`,
+        note: 'PDF generation to be implemented with puppeteer or similar library'
+      }
+    });
+
+    // Log the download attempt
+    await logActivity({
+      action: ACTIONS.VIEW,
+      resource: 'ENTERPRISE_INVOICE',
+      userId: userId,
+      resourceId: invoiceId,
+      details: {
+        invoiceNumber: invoiceData.number,
+        enterpriseId: enterpriseId
+      }
+    });
+
+  } catch (error) {
+    console.error('Error downloading invoice:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Failed to download invoice',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Submit a demo request
+ */
+exports.submitDemoRequest = async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const {
+      companyName,
+      contactPersonName,
+      email,
+      phone,
+      companySize,
+      industry,
+      estimatedUsers,
+      specificRequirements,
+      preferredContactTime,
+      currentSolution,
+      budget,
+      timeline,
+      inquiryType = 'demo',
+      requestType = 'enterprise_demo',
+      source = 'settings_billing_tab'
+    } = req.body;
+
+    // Validate required fields
+    if (!companyName || !contactPersonName || !email) {
+      return res.status(400).json({
+        status: false,
+        message: 'Company name, contact person name, and email are required'
+      });
+    }
+
+    // Create demo request document
+    const demoRequestData = {
+      userId: userId,
+      companyName,
+      contactPersonName,
+      email,
+      phone: phone || null,
+      companySize: companySize || null,
+      industry: industry || null,
+      estimatedUsers: estimatedUsers || null,
+      specificRequirements: specificRequirements || null,
+      preferredContactTime: preferredContactTime || null,
+      currentSolution: currentSolution || null,
+      budget: budget || null,
+      timeline: timeline || null,
+      inquiryType,
+      requestType,
+      submittedAt: new Date().toISOString(),
+      source,
+      status: 'pending',
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    const docRef = await db.collection('demoRequests').add(demoRequestData);
+
+    // Log the demo request
+    await logActivity({
+      action: ACTIONS.CREATE,
+      resource: 'DEMO_REQUEST',
+      userId: userId,
+      resourceId: docRef.id,
+      details: {
+        companyName,
+        contactPersonName,
+        email,
+        requestType,
+        estimatedUsers
+      }
+    });
+
+    res.status(200).json({
+      status: true,
+      message: 'Demo request submitted successfully',
+      data: {
+        inquiryId: `demo_${docRef.id}`,
+        expectedResponse: 'within 24 hours'
+      }
+    });
+
+  } catch (error) {
+    console.error('Error submitting demo request:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Failed to submit demo request',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Submit a general enterprise inquiry
+ */
+exports.submitEnterpriseInquiry = async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const {
+      companyName,
+      contactPersonName,
+      email,
+      phone,
+      companySize,
+      industry,
+      estimatedUsers,
+      specificRequirements,
+      preferredContactTime,
+      inquiryType = 'pricing',
+      currentSolution,
+      budget,
+      timeline
+    } = req.body;
+
+    // Validate required fields
+    if (!companyName || !contactPersonName || !email) {
+      return res.status(400).json({
+        status: false,
+        message: 'Company name, contact person name, and email are required'
+      });
+    }
+
+    // Create enterprise inquiry document
+    const inquiryData = {
+      userId: userId,
+      companyName,
+      contactPersonName,
+      email,
+      phone: phone || null,
+      companySize: companySize || null,
+      industry: industry || null,
+      estimatedUsers: estimatedUsers || null,
+      specificRequirements: specificRequirements || null,
+      preferredContactTime: preferredContactTime || null,
+      inquiryType,
+      currentSolution: currentSolution || null,
+      budget: budget || null,
+      timeline: timeline || null,
+      submittedAt: new Date().toISOString(),
+      status: 'pending',
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    const docRef = await db.collection('enterpriseInquiries').add(inquiryData);
+
+    // Log the inquiry
+    await logActivity({
+      action: ACTIONS.CREATE,
+      resource: 'ENTERPRISE_INQUIRY',
+      userId: userId,
+      resourceId: docRef.id,
+      details: {
+        companyName,
+        contactPersonName,
+        email,
+        inquiryType,
+        estimatedUsers
+      }
+    });
+
+    res.status(200).json({
+      status: true,
+      message: 'Enterprise inquiry submitted successfully',
+      data: {
+        inquiryId: `inquiry_${docRef.id}`,
+        expectedResponse: 'within 2 business days'
+      }
+    });
+
+  } catch (error) {
+    console.error('Error submitting enterprise inquiry:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Failed to submit enterprise inquiry',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Helper function to create sample enterprise invoices for testing
+ * This is for development/testing purposes only
+ */
+exports.createSampleInvoices = async (req, res) => {
+  try {
+    const { enterpriseId } = req.params;
+    
+    // Verify enterprise exists
+    const enterpriseDoc = await db.collection('enterprise').doc(enterpriseId).get();
+    if (!enterpriseDoc.exists) {
+      return res.status(404).json({
+        status: false,
+        message: 'Enterprise not found'
+      });
+    }
+
+    // Create sample invoices
+    const sampleInvoices = [
+      {
+        enterpriseId: enterpriseId,
+        waveAppsInvoiceId: 'WA_INV_001',
+        number: 'INV-2025-001',
+        date: '2025-01-01',
+        dueDate: '2025-01-31',
+        amount: 12000.00,
+        currency: 'ZAR',
+        status: 'paid',
+        lineItems: [
+          {
+            description: 'XSCard Enterprise License - January 2025',
+            quantity: 1,
+            rate: 12000.00,
+            amount: 12000.00
+          }
+        ],
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      },
+      {
+        enterpriseId: enterpriseId,
+        waveAppsInvoiceId: 'WA_INV_002',
+        number: 'INV-2025-002',
+        date: '2025-02-01',
+        dueDate: '2025-02-28',
+        amount: 12000.00,
+        currency: 'ZAR',
+        status: 'pending',
+        lineItems: [
+          {
+            description: 'XSCard Enterprise License - February 2025',
+            quantity: 1,
+            rate: 12000.00,
+            amount: 12000.00
+          }
+        ],
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      }
+    ];
+
+    // Add sample invoices to database
+    const batch = db.batch();
+    sampleInvoices.forEach(invoice => {
+      const invoiceRef = db.collection('enterpriseInvoices').doc();
+      batch.set(invoiceRef, invoice);
+    });
+    
+    await batch.commit();
+
+    res.status(200).json({
+      status: true,
+      message: 'Sample invoices created successfully',
+      data: {
+        invoicesCreated: sampleInvoices.length,
+        enterpriseId: enterpriseId
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating sample invoices:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Failed to create sample invoices',
+      error: error.message
     });
   }
 }; 
