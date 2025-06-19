@@ -1107,8 +1107,8 @@ const cancelSubscription = async (req, res) => {
         // Get authenticated user ID directly from req.user
         const userId = req.user.uid;
         
-        // Get cancellation details from body
-        const { code, token, reason, feedback } = req.body;
+        // Get cancellation details from body (token no longer required from frontend)
+        const { code, reason, feedback } = req.body;
         
         console.log(`Starting cancellation process for user ${userId}`);
         
@@ -1117,6 +1117,39 @@ const cancelSubscription = async (req, res) => {
             return res.status(400).json({
                 status: false,
                 message: 'Subscription code is required'
+            });
+        }
+        
+        // Auto-retrieve email_token from subscriptions collection
+        let emailToken = null;
+        try {
+            const subscriptionDoc = await db.collection('subscriptions').doc(userId).get();
+            if (subscriptionDoc.exists) {
+                const subscriptionData = subscriptionDoc.data();
+                // Email token is nested in subscriptionData.subscriptionData.email_token
+                emailToken = subscriptionData.subscriptionData?.email_token;
+                console.log(`Retrieved email_token from database: ${emailToken ? 'Found' : 'Not found'}`);
+                console.log('Full subscription data structure:', JSON.stringify(subscriptionData, null, 2));
+            } else {
+                console.log('No subscription document found for user');
+                return res.status(404).json({
+                    status: false,
+                    message: 'No active subscription found for user'
+                });
+            }
+        } catch (dbError) {
+            console.error('Error retrieving email_token from database:', dbError);
+            return res.status(500).json({
+                status: false,
+                message: 'Failed to retrieve subscription details'
+            });
+        }
+        
+        // Check if email_token was found
+        if (!emailToken) {
+            return res.status(400).json({
+                status: false,
+                message: 'Email token not found. Please contact support.'
             });
         }
         
@@ -1132,10 +1165,10 @@ const cancelSubscription = async (req, res) => {
         // Log the parameters we're using
         console.log('Using subscription values:');
         console.log(`- Code: ${code}`);
-        console.log(`- Token: ${token || 'Not provided'}`);
+        console.log(`- Email Token: ${emailToken ? 'Retrieved from DB' : 'Not available'}`);
         
-        // Use the single working method
-        const result = await cancelSubscriptionWithPaystack(code, token);
+        // Use the single working method with auto-retrieved token
+        const result = await cancelSubscriptionWithPaystack(code, emailToken);
         
         clearTimeout(apiTimeout);
         
