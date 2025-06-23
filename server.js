@@ -11,7 +11,7 @@ const { db, admin } = require('./firebase.js');
 const { sendMailWithStatus } = require('./public/Utils/emailService');
 const { invalidateEnterpriseCache } = require('./controllers/enterprise/contactAggregationController');
 const app = express();
-const port = 8383;
+const port = 8384;
 
 // Configure CORS
 const corsOptions = {
