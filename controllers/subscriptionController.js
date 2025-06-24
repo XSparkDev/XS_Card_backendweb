@@ -4,6 +4,276 @@ const { SUBSCRIPTION_PLANS, SUBSCRIPTION_CONSTANTS, getPlanById, getPlanByCode }
 const { logActivity, ACTIONS, RESOURCES } = require('../utils/logger');
 const { storePaymentMethod } = require('./billingController');
 
+// ============================================================================
+// SUBSCRIPTION HISTORY HELPER FUNCTIONS (Phase 1)
+// ============================================================================
+
+/**
+ * Clean up subscription fields from a user record (Phase 2)
+ * This function removes subscription-specific fields that should only be in subscriptions collection
+ * @param {string} userId - User ID
+ * @returns {Promise<number>} - Number of fields cleaned up
+ */
+const cleanupUserSubscriptionFields = async (userId) => {
+    try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        
+        if (!userDoc.exists) {
+            return 0;
+        }
+        
+        const userData = userDoc.data();
+        const fieldsToRemove = {};
+        
+        // List of subscription fields that should be removed from user records
+        const subscriptionFields = [
+            'subscriptionPlan', 'subscriptionReference', 'subscriptionStart', 'subscriptionEnd',
+            'trialStartDate', 'trialEndDate', 'customerCode', 'subscriptionCode', 
+            'subscriptionId', 'paymentReference', 'lastPaymentFailure', 'paymentFailureCount'
+        ];
+        
+        // Check which fields exist and mark them for removal
+        subscriptionFields.forEach(field => {
+            if (userData[field] !== undefined) {
+                fieldsToRemove[field] = admin.firestore.FieldValue.delete();
+            }
+        });
+        
+        // Apply cleanup if there are fields to remove
+        if (Object.keys(fieldsToRemove).length > 0) {
+            await userDoc.ref.update(fieldsToRemove);
+            console.log(`Cleaned up ${Object.keys(fieldsToRemove).length} subscription fields from user ${userId} record`);
+            
+            // Log the cleanup activity
+            await logActivity({
+                action: 'CLEANUP',
+                resource: RESOURCES.USER,
+                userId: userId,
+                resourceId: userId,
+                details: {
+                    operation: 'user_subscription_field_cleanup',
+                    fieldsRemoved: Object.keys(fieldsToRemove),
+                    fieldCount: Object.keys(fieldsToRemove).length,
+                    phase: 'phase_2_migration'
+                }
+            });
+        }
+        
+        return Object.keys(fieldsToRemove).length;
+    } catch (error) {
+        console.error(`Error cleaning up user ${userId} subscription fields:`, error);
+        return 0;
+    }
+};
+
+/**
+ * Create a subscription history record for archival purposes
+ * @param {string} userId - User ID
+ * @param {Object} subscriptionData - Current subscription data
+ * @param {Object} cancellationDetails - Cancellation information
+ * @returns {Promise<string>} - History record ID
+ */
+const createSubscriptionHistory = async (userId, subscriptionData, cancellationDetails = {}) => {
+    try {
+        // Get user's existing subscription history count for numbering
+        const existingHistorySnapshot = await db.collection('subscriptionHistory')
+            .where('userId', '==', userId)
+            .get();
+        
+        const subscriptionNumber = existingHistorySnapshot.size + 1;
+        
+        // Calculate total paid amount
+        let totalPaid = 0;
+        if (subscriptionData.amount) {
+            totalPaid = subscriptionData.amount;
+        } else if (subscriptionData.planId) {
+            const plan = getPlanById(subscriptionData.planId);
+            totalPaid = plan ? plan.amount : 0;
+        }
+
+        // Calculate subscription duration if we have dates
+        let durationDays = null;
+        if (subscriptionData.startDate && cancellationDetails.cancellationDate) {
+            const start = new Date(subscriptionData.startDate);
+            const end = new Date(cancellationDetails.cancellationDate);
+            durationDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+        }
+
+        // === FIX: Filter out undefined values to prevent Firestore errors ===
+        const cleanObject = (obj) => {
+            const cleaned = {};
+            for (const [key, value] of Object.entries(obj)) {
+                if (value !== undefined && value !== null) {
+                    if (typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+                        const cleanedNested = cleanObject(value);
+                        if (Object.keys(cleanedNested).length > 0) {
+                            cleaned[key] = cleanedNested;
+                        }
+                    } else {
+                        cleaned[key] = value;
+                    }
+                }
+            }
+            return cleaned;
+        };
+
+        // Create comprehensive history record with clean data
+        const historyRecord = {
+            userId: userId,
+            subscriptionId: subscriptionData.subscriptionId || subscriptionData.id || `sub_${Date.now()}`,
+            planId: subscriptionData.planId || 'unknown',
+            planCode: subscriptionData.planCode || subscriptionData.subscriptionCode || null,
+            subscriptionCode: subscriptionData.subscriptionCode || null,
+            customerCode: subscriptionData.customerCode || null,
+            status: 'cancelled',
+            
+            // Dates (only include if they exist)
+            startDate: subscriptionData.startDate || subscriptionData.trialStartDate || null,
+            endDate: subscriptionData.endDate || subscriptionData.trialEndDate || null,
+            trialStartDate: subscriptionData.trialStartDate || null,
+            trialEndDate: subscriptionData.trialEndDate || null,
+            cancellationDate: cancellationDetails.cancellationDate || new Date().toISOString(),
+            
+            // Cancellation details
+            cancellationReason: cancellationDetails.reason || 'User requested',
+            cancellationSource: cancellationDetails.source || 'user_action', // user_action, webhook, admin
+            
+            // Financial data
+            totalPaid: totalPaid,
+            currency: 'ZAR',
+            
+            // Metadata
+            subscriptionNumber: subscriptionNumber,
+            durationDays: durationDays,
+            wasTrialSubscription: !!(subscriptionData.trialStartDate),
+            
+            // Archive metadata
+            archivedDate: new Date().toISOString(),
+            archivedBy: 'system',
+            
+            // Paystack references
+            paymentReference: subscriptionData.reference || subscriptionData.paymentReference || null,
+            
+            createdAt: new Date().toISOString()
+        };
+
+        // === FIX: Clean the history record and store limited original data ===
+        const cleanHistoryRecord = cleanObject(historyRecord);
+        
+        // Add cleaned original subscription data (only essential fields)
+        if (subscriptionData && Object.keys(subscriptionData).length > 0) {
+            const essentialOriginalData = {
+                planId: subscriptionData.planId,
+                planName: subscriptionData.planName,
+                planAmount: subscriptionData.planAmount,
+                status: subscriptionData.status,
+                customerCode: subscriptionData.customerCode,
+                subscriptionCode: subscriptionData.subscriptionCode,
+                reference: subscriptionData.reference
+            };
+            cleanHistoryRecord.originalSubscriptionData = cleanObject(essentialOriginalData);
+        }
+
+        // Add to subscriptionHistory collection
+        const historyDocRef = await db.collection('subscriptionHistory').add(cleanHistoryRecord);
+        
+        console.log(`Created subscription history record ${historyDocRef.id} for user ${userId} (subscription #${subscriptionNumber})`);
+        
+        // Log the history creation
+        await logActivity({
+            action: ACTIONS.CREATE,
+            resource: 'SUBSCRIPTION_HISTORY',
+            userId: userId,
+            resourceId: historyDocRef.id,
+            details: {
+                subscriptionNumber: subscriptionNumber,
+                planId: subscriptionData.planId,
+                cancellationReason: cancellationDetails.reason,
+                totalPaid: totalPaid,
+                durationDays: durationDays
+            }
+        });
+        
+        return historyDocRef.id;
+    } catch (error) {
+        console.error('Error creating subscription history:', error);
+        // Don't throw error - history creation shouldn't break cancellation flow
+        return null;
+    }
+};
+
+/**
+ * Get user's subscription history count
+ * @param {string} userId - User ID
+ * @returns {Promise<number>} - Number of historical subscriptions
+ */
+const getUserSubscriptionHistoryCount = async (userId) => {
+    try {
+        // === FIX: Use simple query to avoid index requirement ===
+        const historySnapshot = await db.collection('subscriptionHistory')
+            .where('userId', '==', userId)
+            .get();
+        return historySnapshot.size;
+    } catch (error) {
+        console.error('Error getting subscription history count:', error);
+        return 0;
+    }
+};
+
+/**
+ * Get user's complete subscription history
+ * @param {string} userId - User ID
+ * @param {number} limit - Maximum number of records to return
+ * @returns {Promise<Array>} - Array of history records
+ */
+const getUserSubscriptionHistory = async (userId, limit = 50) => {
+    try {
+        // === FIX: Use simpler query to avoid index requirement ===
+        // Try with orderBy first, fall back to simpler query if index doesn't exist
+        let historySnapshot;
+        try {
+            historySnapshot = await db.collection('subscriptionHistory')
+                .where('userId', '==', userId)
+                .orderBy('subscriptionNumber', 'desc')
+                .limit(limit)
+                .get();
+        } catch (indexError) {
+            console.log('Index not available, using simple query without orderBy');
+            // Fallback: Simple query without orderBy (no index required)
+            historySnapshot = await db.collection('subscriptionHistory')
+                .where('userId', '==', userId)
+                .limit(limit)
+                .get();
+        }
+            
+        const history = [];
+        historySnapshot.forEach(doc => {
+            history.push({
+                id: doc.id,
+                ...doc.data()
+            });
+        });
+        
+        // Sort in memory if we couldn't sort in the query
+        if (history.length > 0 && !history[0].subscriptionNumber) {
+            // Sort by creation date if subscriptionNumber not available
+            history.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        } else if (history.length > 1 && history[0].subscriptionNumber < history[1].subscriptionNumber) {
+            // Sort by subscriptionNumber descending if query didn't sort
+            history.sort((a, b) => (b.subscriptionNumber || 0) - (a.subscriptionNumber || 0));
+        }
+        
+        return history;
+    } catch (error) {
+        console.error('Error getting user subscription history:', error);
+        return [];
+    }
+};
+
+// ============================================================================
+// EXISTING SUBSCRIPTION FUNCTIONS (Modified for Phase 1)
+// ============================================================================
+
 /**
  * Initialize a subscription with Paystack
  * Uses the authenticated user's email and the selected plan ID
@@ -381,21 +651,18 @@ const handleSubscriptionCallback = async (req, res) => {
                 const planId = metadata.planId;
                 const plan = getPlanById(planId);
 
-                // Update user subscription status
+                // === PHASE 2: CLEAN USER RECORD - ONLY ESSENTIAL RBAC FIELDS ===
+                // Update user subscription status (minimal data for RBAC)
                 await userDoc.ref.update({
                     subscriptionStatus: 'active',
-                    subscriptionPlan: planId || 'unknown',
-                    subscriptionReference: reference,
-                    subscriptionStart: new Date().toISOString(),
-                    // Calculate end date based on plan interval
-                    subscriptionEnd: plan && plan.interval === 'annually' 
-                        ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() 
-                        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                    plan: 'premium' // Set plan to premium for RBAC
+                    plan: 'premium', // Set plan to premium for RBAC
+                    lastUpdated: new Date().toISOString()
+                    // Removed: subscriptionPlan, subscriptionReference, subscriptionStart, subscriptionEnd
                 });
                 console.log('User subscription updated successfully');
 
-                // Also store the subscription details in a separate collection using userId as document ID
+                // === PHASE 2: ALL SUBSCRIPTION DETAILS GO TO SUBSCRIPTIONS COLLECTION ===
+                // Store comprehensive subscription details in subscriptions collection using userId as document ID
                 await db.collection('subscriptions').doc(userId).set({
                     userId: userId,
                     email: userEmail,
@@ -408,7 +675,17 @@ const handleSubscriptionCallback = async (req, res) => {
                         ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() 
                         : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
                     createdAt: new Date().toISOString(),
-                    transactionData: paymentData.data
+                    lastUpdated: new Date().toISOString(),
+                    transactionData: paymentData.data,
+                    // For direct payments, subscriptionCode might not be available from Paystack
+                    subscriptionCode: paymentData.data.subscription?.subscription_code || null,
+                    // Add plan details for easy access
+                    planCode: plan?.planCode || null,
+                    planName: plan?.name || 'Unknown Plan',
+                    planAmount: plan?.amount || 0,
+                    planInterval: plan?.interval || 'unknown',
+                    // Payment details
+                    customerCode: paymentData.data.customer?.customer_code || null
                 });
 
                 // Add log entry for subscription creation
@@ -542,35 +819,37 @@ const handleTrialCallback = async (req, res) => {
             console.log('Delayed subscription result:', subscriptionResult);
 
             if (subscriptionResult.status) {
-                // Update user with trial and subscription info
+                // === PHASE 2: CLEAN USER RECORD - ONLY ESSENTIAL RBAC FIELDS ===
+                // Update user subscription status (minimal data for RBAC)
                 await userDoc.ref.update({
                     subscriptionStatus: 'trial',
-                    subscriptionPlan: planId,
-                    customerCode: customerCode,
-                    trialStartDate: new Date().toISOString(),
-                    trialEndDate: trialEndDate.toISOString(),
-                    paymentReference: reference,
-                    subscriptionCode: subscriptionResult.data.subscription_code,
-                    subscriptionId: subscriptionResult.data.id,
-                    lastUpdated: new Date().toISOString(),
-                    plan: 'premium' // Set plan to premium for RBAC
+                    plan: 'premium', // Set plan to premium for RBAC
+                    lastUpdated: new Date().toISOString()
+                    // Removed: subscriptionPlan, subscriptionReference, subscriptionStart, subscriptionEnd
                 });
                 
-                // Store subscription details using userId as document ID
+                // === PHASE 2: ALL SUBSCRIPTION DETAILS GO TO SUBSCRIPTIONS COLLECTION ===
+                // Store comprehensive subscription details in subscriptions collection using userId as document ID
                 await db.collection('subscriptions').doc(userId).set({
                     userId: userId,
                     email: userEmail,
                     planId: planId,
                     customerCode: customerCode,
-                    subscriptionCode: subscriptionResult.data.subscription_code,
-                    subscriptionId: subscriptionResult.data.id,
                     reference: reference,
                     status: 'trial',
                     trialStartDate: new Date().toISOString(),
                     trialEndDate: trialEndDate.toISOString(),
                     createdAt: new Date().toISOString(),
+                    lastUpdated: new Date().toISOString(),
                     paymentData: paymentData.data,
-                    subscriptionData: subscriptionResult.data
+                    subscriptionData: subscriptionResult.data,
+                    // Extract subscriptionCode from Paystack response
+                    subscriptionCode: subscriptionResult.data?.subscription_code || null,
+                    // Plan details for easy access
+                    planCode: plan.planCode,
+                    planName: plan.name,
+                    planAmount: plan.amount,
+                    planInterval: plan.interval
                 });
                 
                 console.log('User trial subscription setup successfully');
@@ -602,16 +881,37 @@ const handleTrialCallback = async (req, res) => {
                 }
             } else {
                 console.error('Failed to create delayed subscription:', subscriptionResult);
+                
+                // === PHASE 2: MINIMAL USER UPDATE FOR INCOMPLETE TRIAL ===
                 // Still update user with trial info but mark subscription as pending
                 await userDoc.ref.update({
                     subscriptionStatus: 'trial_incomplete',
-                    subscriptionPlan: planId,
+                    plan: 'free', // Keep as free until subscription is complete
+                    lastUpdated: new Date().toISOString()
+                    // Removed: subscriptionPlan, subscriptionReference
+                });
+                
+                // === PHASE 2: INCOMPLETE TRIAL DETAILS TO SUBSCRIPTIONS COLLECTION ===
+                await db.collection('subscriptions').doc(userId).set({
+                    userId: userId,
+                    email: userEmail,
+                    planId: planId,
                     customerCode: customerCode,
+                    reference: reference,
+                    status: 'trial_incomplete',
                     trialStartDate: new Date().toISOString(),
                     trialEndDate: trialEndDate.toISOString(),
-                    paymentReference: reference,
+                    createdAt: new Date().toISOString(),
                     lastUpdated: new Date().toISOString(),
-                    errorDetails: subscriptionResult
+                    paymentData: paymentData.data,
+                    errorDetails: subscriptionResult,
+                    // subscriptionCode would be null since subscription creation failed
+                    subscriptionCode: null,
+                    // Plan details
+                    planCode: plan.planCode,
+                    planName: plan.name,
+                    planAmount: plan.amount,
+                    planInterval: plan.interval
                 });
             }
 
@@ -703,6 +1003,44 @@ const handleSubscriptionWebhook = async (req, res) => {
                 
                 console.log(`Updating subscription status to cancelled for user ${userId}`);
                 
+                // === PHASE 1: CREATE SUBSCRIPTION HISTORY RECORD FOR WEBHOOK CANCELLATION ===
+                // Get current subscription data before cancellation
+                const subscriptionDoc = await db.collection('subscriptions').doc(userId).get();
+                let subscriptionData = {};
+                if (subscriptionDoc.exists) {
+                    subscriptionData = subscriptionDoc.data();
+                }
+                
+                // Combine user and subscription data for comprehensive history
+                const combinedSubscriptionData = {
+                    ...subscriptionData,
+                    // Add user subscription fields for complete record
+                    subscriptionPlan: userData.subscriptionPlan || subscriptionData.planId,
+                    subscriptionStatus: userData.subscriptionStatus,
+                    trialStartDate: userData.trialStartDate || subscriptionData.trialStartDate,
+                    trialEndDate: userData.trialEndDate || subscriptionData.trialEndDate,
+                    subscriptionStart: userData.subscriptionStart || subscriptionData.startDate,
+                    subscriptionEnd: userData.subscriptionEnd || subscriptionData.endDate,
+                    customerCode: userData.customerCode || subscriptionData.customerCode,
+                    subscriptionCode: userData.subscriptionCode || subscriptionData.subscriptionCode,
+                    paymentReference: userData.paymentReference || subscriptionData.reference
+                };
+                
+                const cancellationDetails = {
+                    cancellationDate: new Date().toISOString(),
+                    reason: `Webhook cancellation: ${event.event}`,
+                    source: 'webhook' // webhook source
+                };
+                
+                // Create history record (non-blocking - don't fail webhook processing if this fails)
+                try {
+                    await createSubscriptionHistory(userId, combinedSubscriptionData, cancellationDetails);
+                    console.log(`Subscription history created for user ${userId} via webhook before cancellation`);
+                } catch (historyError) {
+                    console.error('Failed to create subscription history via webhook (continuing with cancellation):', historyError);
+                }
+                
+                // === EXISTING WEBHOOK CANCELLATION LOGIC (UNCHANGED) ===
                 // Update user with cancelled status and change plan to free
                 await userDoc.ref.update({
                     subscriptionStatus: 'cancelled',
@@ -897,7 +1235,7 @@ const getSubscriptionStatus = async (req, res) => {
     try {
         const userId = req.user.uid;
         
-        // Get user document
+        // Get user document (only for RBAC fields)
         const userDoc = await db.collection('users').doc(userId).get();
         
         if (!userDoc.exists) {
@@ -909,18 +1247,35 @@ const getSubscriptionStatus = async (req, res) => {
         
         const userData = userDoc.data();
         
-        // Get subscription data
+        // === PHASE 2: GRADUAL CLEANUP - AUTO-CLEAN USER RECORDS ON ACCESS ===
+        // Automatically clean up subscription fields from user record when accessed
+        try {
+            const fieldsRemoved = await cleanupUserSubscriptionFields(userId);
+            if (fieldsRemoved > 0) {
+                console.log(`Auto-cleaned ${fieldsRemoved} subscription fields from user ${userId} during status check`);
+            }
+        } catch (cleanupError) {
+            console.error('Error during auto-cleanup:', cleanupError);
+            // Don't fail the request if cleanup fails
+        }
+        
+        // === PHASE 2: PRIMARY DATA SOURCE - SUBSCRIPTIONS COLLECTION ===
+        // Get subscription data (this is now the primary source of truth)
         const subscriptionRef = db.collection('subscriptions').doc(userId);
         const subscriptionDoc = await subscriptionRef.get();
         const subscriptionData = subscriptionDoc.exists ? subscriptionDoc.data() : {};
         
-        // Determine subscription plan details
+        // Determine subscription plan details (prioritize subscriptions collection)
         let planDetails = null;
         let subscriptionPlan = 'free';
         
-        if (userData.plan === 'premium' || userData.subscriptionStatus === 'active' || userData.subscriptionStatus === 'trial') {
-            // Check if monthly or annual based on subscription plan ID or plan code
-            const planId = userData.subscriptionPlan || subscriptionData.planId;
+        if (userData.plan === 'premium' || 
+            userData.subscriptionStatus === 'active' || 
+            userData.subscriptionStatus === 'trial' ||
+            userData.subscriptionStatus === 'trial_incomplete') {
+            
+            // Phase 2: Prioritize subscription collection data
+            const planId = subscriptionData.planId || userData.subscriptionPlan; // Fallback for backward compatibility
             if (planId) {
                 const plan = getPlanById(planId);
                 if (plan) {
@@ -939,43 +1294,58 @@ const getSubscriptionStatus = async (req, res) => {
         
         // Calculate subscription dates and status
         const now = new Date();
-        const isActive = userData.subscriptionStatus === 'active' || userData.subscriptionStatus === 'trial';
+        // Include trial_incomplete as active since user paid and is in trial period
+        const isActive = userData.subscriptionStatus === 'active' || 
+                         userData.subscriptionStatus === 'trial' ||
+                         userData.subscriptionStatus === 'trial_incomplete';
         
         // Get current contact count
         const currentContactCount = await getCurrentContactCount(userId);
         
-        // Build comprehensive response
+        // === PHASE 2: BUILD RESPONSE PRIORITIZING SUBSCRIPTIONS COLLECTION ===
         const response = {
             status: true,
             data: {
+                // RBAC fields from users collection (authoritative)
                 subscriptionStatus: userData.subscriptionStatus || 'free',
+                plan: userData.plan || 'free',
+                isActive: isActive,
+                
+                // Subscription details from subscriptions collection (prioritized)
                 subscriptionPlan: subscriptionPlan,
                 subscriptionReference: subscriptionData.reference || userData.subscriptionReference || null,
                 subscriptionStart: subscriptionData.startDate || userData.subscriptionStart || userData.trialStartDate || null,
                 subscriptionEnd: subscriptionData.endDate || userData.subscriptionEnd || null,
-                trialStartDate: userData.trialStartDate || subscriptionData.trialStartDate || null,
-                trialEndDate: userData.trialEndDate || subscriptionData.trialEndDate || null,
-                customerCode: userData.customerCode || subscriptionData.customerCode || null,
-                subscriptionCode: userData.subscriptionCode || subscriptionData.subscriptionCode || null,
-                isActive: isActive,
-                plan: userData.plan || 'free',
-                amount: planDetails?.amount || 0,
+                trialStartDate: subscriptionData.trialStartDate || userData.trialStartDate || null,
+                trialEndDate: subscriptionData.trialEndDate || userData.trialEndDate || null,
+                customerCode: subscriptionData.customerCode || userData.customerCode || null,
+                subscriptionCode: subscriptionData.subscriptionCode || userData.subscriptionCode || null,
+                
+                // Financial and plan details (from subscriptions collection)
+                amount: subscriptionData.planAmount || planDetails?.amount || 0,
                 currency: 'ZAR',
-                // Additional useful fields
+                
+                // Additional subscription fields (prioritize subscriptions collection)
                 paymentMethod: subscriptionData.paymentMethod || null,
                 lastPaymentDate: subscriptionData.lastPaymentDate || null,
                 nextPaymentDate: subscriptionData.nextPaymentDate || null,
-                cancellationDate: userData.cancellationDate || subscriptionData.cancellationDate || null,
+                cancellationDate: subscriptionData.cancellationDate || userData.cancellationDate || null,
                 autoRenew: subscriptionData.autoRenew !== false, // Default to true unless explicitly false
+                
                 // Contact limits and usage
-                contactLimit: userData.plan === 'free' ? 3 : 'unlimited',
+                contactLimit: (userData.plan === 'free' && 
+                             userData.subscriptionStatus !== 'trial' && 
+                             userData.subscriptionStatus !== 'trial_incomplete' && 
+                             userData.subscriptionStatus !== 'active') ? 3 : 'unlimited',
                 currentContactCount: currentContactCount,
-                // Plan details
+                
+                // Plan details (use subscription data first, then config)
                 planDetails: planDetails ? {
                     id: planDetails.id,
-                    name: planDetails.name,
-                    interval: planDetails.interval,
-                    description: planDetails.description
+                    name: subscriptionData.planName || planDetails.name,
+                    interval: subscriptionData.planInterval || planDetails.interval,
+                    description: planDetails.description,
+                    amount: subscriptionData.planAmount || planDetails.amount
                 } : null
             }
         };
@@ -1017,13 +1387,51 @@ const getSubscriptionLogs = async (req, res) => {
         const userId = req.user.uid;
         const limit = parseInt(req.query.limit) || 20;
         
-        // Query from activityLogs instead of subscriptionLogs
-        const logsSnapshot = await db.collection('activityLogs')
-            .where('userId', '==', userId)
-            .where('resource', '==', RESOURCES.SUBSCRIPTION)
-            .orderBy('timestamp', 'desc')
-            .limit(limit)
-            .get();
+        // === FIX: Use fallback query to avoid index requirement ===
+        let logsSnapshot;
+        try {
+            // Try complex query first (requires index)
+            logsSnapshot = await db.collection('activityLogs')
+                .where('userId', '==', userId)
+                .where('resource', '==', RESOURCES.SUBSCRIPTION)
+                .orderBy('timestamp', 'desc')
+                .limit(limit)
+                .get();
+        } catch (indexError) {
+            console.log('ActivityLogs index not available, using simple query without orderBy');
+            try {
+                // Fallback 1: Simple query with both filters, no orderBy
+                logsSnapshot = await db.collection('activityLogs')
+                    .where('userId', '==', userId)
+                    .where('resource', '==', RESOURCES.SUBSCRIPTION)
+                    .limit(limit)
+                    .get();
+            } catch (simpleError) {
+                console.log('Using most basic query with userId only');
+                // Fallback 2: Most basic query - userId only, filter in memory
+                const allUserLogs = await db.collection('activityLogs')
+                    .where('userId', '==', userId)
+                    .limit(limit * 2) // Get more to filter
+                    .get();
+                
+                // Filter for subscription logs in memory
+                const filteredDocs = [];
+                allUserLogs.forEach(doc => {
+                    const data = doc.data();
+                    if (data.resource === RESOURCES.SUBSCRIPTION) {
+                        filteredDocs.push(doc);
+                    }
+                });
+                
+                // Create a mock snapshot object
+                logsSnapshot = {
+                    docs: filteredDocs.slice(0, limit),
+                    forEach: function(callback) {
+                        this.docs.forEach(callback);
+                    }
+                };
+            }
+        }
             
         const logs = [];
         logsSnapshot.forEach(doc => {
@@ -1032,6 +1440,15 @@ const getSubscriptionLogs = async (req, res) => {
                 ...doc.data()
             });
         });
+        
+        // Sort in memory if needed (by timestamp descending)
+        if (logs.length > 1) {
+            logs.sort((a, b) => {
+                const timestampA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
+                const timestampB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
+                return timestampB - timestampA;
+            });
+        }
         
         res.status(200).json({
             status: true,
@@ -1059,6 +1476,46 @@ const updateCancellationInDatabase = async (userId, reason = 'User cancelled') =
             throw new Error('User not found');
         }
         
+        const userData = userDoc.data();
+        
+        // Get current subscription data before cancellation
+        const subscriptionDoc = await db.collection('subscriptions').doc(userId).get();
+        let subscriptionData = {};
+        if (subscriptionDoc.exists) {
+            subscriptionData = subscriptionDoc.data();
+        }
+        
+        // === PHASE 1: CREATE SUBSCRIPTION HISTORY RECORD ===
+        // Combine user and subscription data for comprehensive history
+        const combinedSubscriptionData = {
+            ...subscriptionData,
+            // Add user subscription fields for complete record
+            subscriptionPlan: userData.subscriptionPlan || subscriptionData.planId,
+            subscriptionStatus: userData.subscriptionStatus,
+            trialStartDate: userData.trialStartDate || subscriptionData.trialStartDate,
+            trialEndDate: userData.trialEndDate || subscriptionData.trialEndDate,
+            subscriptionStart: userData.subscriptionStart || subscriptionData.startDate,
+            subscriptionEnd: userData.subscriptionEnd || subscriptionData.endDate,
+            customerCode: userData.customerCode || subscriptionData.customerCode,
+            subscriptionCode: userData.subscriptionCode || subscriptionData.subscriptionCode,
+            paymentReference: userData.paymentReference || subscriptionData.reference
+        };
+        
+        const cancellationDetails = {
+            cancellationDate: new Date().toISOString(),
+            reason: reason,
+            source: 'user_action' // Can be user_action, webhook, admin
+        };
+        
+        // Create history record (non-blocking - don't fail cancellation if this fails)
+        try {
+            await createSubscriptionHistory(userId, combinedSubscriptionData, cancellationDetails);
+            console.log(`Subscription history created for user ${userId} before cancellation`);
+        } catch (historyError) {
+            console.error('Failed to create subscription history (continuing with cancellation):', historyError);
+        }
+        
+        // === EXISTING CANCELLATION LOGIC (UNCHANGED) ===
         // Update user document
         await userDoc.ref.update({
             subscriptionStatus: 'cancelled',
@@ -1067,7 +1524,27 @@ const updateCancellationInDatabase = async (userId, reason = 'User cancelled') =
             cancellationReason: reason,
             lastUpdated: new Date().toISOString()
         });
-        
+
+        // === PHASE 2: CLEAN UP ANY RESIDUAL SUBSCRIPTION FIELDS IN USER RECORD ===
+        // Remove any subscription fields that might exist from previous versions
+        const fieldsToRemove = {};
+        if (userData.subscriptionPlan) fieldsToRemove.subscriptionPlan = admin.firestore.FieldValue.delete();
+        if (userData.subscriptionReference) fieldsToRemove.subscriptionReference = admin.firestore.FieldValue.delete();
+        if (userData.subscriptionStart) fieldsToRemove.subscriptionStart = admin.firestore.FieldValue.delete();
+        if (userData.subscriptionEnd) fieldsToRemove.subscriptionEnd = admin.firestore.FieldValue.delete();
+        if (userData.trialStartDate) fieldsToRemove.trialStartDate = admin.firestore.FieldValue.delete();
+        if (userData.trialEndDate) fieldsToRemove.trialEndDate = admin.firestore.FieldValue.delete();
+        if (userData.customerCode) fieldsToRemove.customerCode = admin.firestore.FieldValue.delete();
+        if (userData.subscriptionCode) fieldsToRemove.subscriptionCode = admin.firestore.FieldValue.delete();
+        if (userData.subscriptionId) fieldsToRemove.subscriptionId = admin.firestore.FieldValue.delete();
+        if (userData.paymentReference) fieldsToRemove.paymentReference = admin.firestore.FieldValue.delete();
+
+        // Apply cleanup if there are fields to remove
+        if (Object.keys(fieldsToRemove).length > 0) {
+            await userDoc.ref.update(fieldsToRemove);
+            console.log(`Cleaned up ${Object.keys(fieldsToRemove).length} subscription fields from user ${userId} record`);
+        }
+
         // Update subscription document
         await db.collection('subscriptions').doc(userId).update({
             status: 'cancelled',
@@ -1083,9 +1560,9 @@ const updateCancellationInDatabase = async (userId, reason = 'User cancelled') =
             userId: userId,
             resourceId: userId,
             details: {
-                oldStatus: userDoc.data().subscriptionStatus || 'unknown',
+                oldStatus: userData.subscriptionStatus || 'unknown',
                 newStatus: 'cancelled',
-                oldPlan: userDoc.data().plan || 'unknown',
+                oldPlan: userData.plan || 'unknown',
                 newPlan: 'free',
                 reason: reason
             }
@@ -1269,29 +1746,34 @@ const updateSubscriptionPlan = async (req, res) => {
         const userData = userDoc.data();
         const oldPlan = userData.subscriptionPlan || 'free';
 
-        // Update user subscription data
-        const updateData = {
-            subscriptionPlan: planId,
-            plan: 'premium',
+        // === PHASE 2: CLEAN USER RECORD - ONLY ESSENTIAL RBAC FIELDS ===
+        // Update user with minimal subscription info (only what's needed for RBAC)
+        const userUpdateData = {
             subscriptionStatus: 'active',
+            plan: 'premium',
             lastUpdated: new Date().toISOString()
+            // Removed: subscriptionPlan, subscriptionEnd (moved to subscriptions collection)
         };
 
+        await userDoc.ref.update(userUpdateData);
+
+        // === PHASE 2: ALL SUBSCRIPTION DETAILS GO TO SUBSCRIPTIONS COLLECTION ===
         // Calculate new end date based on plan interval
-        if (newPlan.interval === 'annually') {
-            updateData.subscriptionEnd = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-        } else {
-            updateData.subscriptionEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-        }
+        const endDate = newPlan.interval === 'annually' 
+            ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
+            : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-        await userDoc.ref.update(updateData);
-
-        // Update subscription document
+        // Update subscription document with comprehensive details
         await db.collection('subscriptions').doc(userId).set({
             userId: userId,
             planId: planId,
             status: 'active',
             planCode: newPlan.planCode,
+            planName: newPlan.name,
+            planAmount: newPlan.amount,
+            planInterval: newPlan.interval,
+            startDate: new Date().toISOString(),
+            endDate: endDate,
             lastUpdated: new Date().toISOString(),
             reason: reason || 'Direct plan update'
         }, { merge: true });
@@ -1331,6 +1813,71 @@ const updateSubscriptionPlan = async (req, res) => {
     }
 };
 
+/**
+ * Get user's subscription history (Phase 1)
+ */
+const getSubscriptionHistory = async (req, res) => {
+    try {
+        const userId = req.user.uid;
+        const limit = parseInt(req.query.limit) || 50;
+        
+        // Get subscription history using helper function
+        const history = await getUserSubscriptionHistory(userId, limit);
+        
+        // Get history count
+        const totalCount = await getUserSubscriptionHistoryCount(userId);
+        
+        res.status(200).json({
+            status: true,
+            message: 'Subscription history retrieved successfully',
+            data: {
+                history: history,
+                totalSubscriptions: totalCount,
+                hasHistory: totalCount > 0
+            }
+        });
+    } catch (error) {
+        console.error('Error getting subscription history:', error);
+        res.status(500).json({
+            status: false,
+            message: 'Failed to retrieve subscription history',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Clean up user subscription fields (Phase 2)
+ * Admin endpoint for gradual cleanup of user records
+ */
+const cleanupUserRecord = async (req, res) => {
+    try {
+        const userId = req.user.uid;
+        
+        // Perform cleanup
+        const fieldsRemoved = await cleanupUserSubscriptionFields(userId);
+        
+        res.status(200).json({
+            status: true,
+            message: fieldsRemoved > 0 
+                ? `Successfully cleaned up ${fieldsRemoved} subscription fields from user record`
+                : 'User record is already clean - no subscription fields to remove',
+            data: {
+                userId: userId,
+                fieldsRemoved: fieldsRemoved,
+                wasCleanupNeeded: fieldsRemoved > 0
+            }
+        });
+    } catch (error) {
+        console.error('Error cleaning up user record:', error);
+        res.status(500).json({
+            status: false,
+            message: 'Failed to clean up user record',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     initializeSubscription,
     initializeTrialSubscription,
@@ -1341,5 +1888,7 @@ module.exports = {
     getSubscriptionStatus,
     cancelSubscription,
     getSubscriptionLogs,
-    updateSubscriptionPlan
+    updateSubscriptionPlan,
+    getSubscriptionHistory,
+    cleanupUserRecord
 };

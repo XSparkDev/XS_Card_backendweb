@@ -9,7 +9,9 @@ const {
     getSubscriptionStatus,
     cancelSubscription,
     getSubscriptionLogs,
-    updateSubscriptionPlan
+    updateSubscriptionPlan,
+    getSubscriptionHistory,
+    cleanupUserRecord
 } = require('../controllers/subscriptionController');
 const { authenticateUser } = require('../middleware/auth');
 
@@ -25,5 +27,7 @@ router.get('/subscription/status', authenticateUser, getSubscriptionStatus);
 router.put('/subscription/plan', authenticateUser, updateSubscriptionPlan);
 router.post('/subscription/cancel', authenticateUser, cancelSubscription);
 router.get('/subscription/logs', authenticateUser, getSubscriptionLogs);
+router.get('/subscription/history', authenticateUser, getSubscriptionHistory);
+router.post('/subscription/cleanup', authenticateUser, cleanupUserRecord);
 
 module.exports = router;

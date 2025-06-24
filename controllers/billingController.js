@@ -20,7 +20,17 @@ const getPaymentMethods = async (req, res) => {
         }
         
         const userData = userDoc.data();
-        const customerCode = userData.customerCode;
+        let customerCode = userData.customerCode;
+        
+        // === PHASE 2: CHECK SUBSCRIPTIONS COLLECTION FOR CUSTOMER CODE ===
+        // If no customerCode in users collection, check subscriptions collection
+        if (!customerCode) {
+            const subscriptionDoc = await db.collection('subscriptions').doc(userId).get();
+            if (subscriptionDoc.exists) {
+                const subscriptionData = subscriptionDoc.data();
+                customerCode = subscriptionData.customerCode;
+            }
+        }
         
         if (!customerCode) {
             // User hasn't made any payments yet, return empty array
