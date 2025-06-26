@@ -28,7 +28,7 @@ const SUBSCRIPTION_PLANS = {
 const SUBSCRIPTION_CONSTANTS = {
     VERIFICATION_AMOUNT: 100, // R1.00 in cents
     TRIAL_DAYS: 0, // Changed from 7 days to 0 days
-    TRIAL_MINUTES: 10 // 10 minutes trial for testing
+    TRIAL_MINUTES: 10080 // 7 days trial (7 * 24 * 60 minutes)
 };
 
 // Helper function to get plan by code

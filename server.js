@@ -492,6 +492,23 @@ app.post('/send-email', async (req, res) => {
   }
 });
 
+// Helper function to calculate next billing date
+const calculateNextBilling = (subscriptionData) => {
+    const now = new Date();
+    const planId = subscriptionData.planId || 'MONTHLY_PLAN';
+    
+    switch (planId) {
+        case 'MONTHLY_PLAN':
+            return new Date(now.setMonth(now.getMonth() + 1)).toISOString();
+        case 'QUARTERLY_PLAN':
+            return new Date(now.setMonth(now.getMonth() + 3)).toISOString();
+        case 'ANNUAL_PLAN':
+            return new Date(now.setFullYear(now.getFullYear() + 1)).toISOString();
+        default:
+            return new Date(now.setMonth(now.getMonth() + 1)).toISOString();
+    }
+};
+
 // Cleanup expired blacklisted tokens every 24 hours
 setInterval(async () => {
     try {
@@ -511,89 +528,88 @@ setInterval(async () => {
     }
 }, 10 * 60 * 1000);
 
-// Check for expired trials every minute
+// Check for expired trials every 24 hours
 const checkExpiredTrials = async () => {
     try {
         const now = new Date();
         console.log(`Checking for expired trials: ${now.toISOString()}`);
         
-        const trialUsersSnapshot = await db.collection('users')
-            .where('subscriptionStatus', '==', 'trial')
+        // Only check subscriptions collection
+        const trialSubscriptionsSnapshot = await db.collection('subscriptions')
+            .where('status', '==', 'trial')
             .get();
         
-        if (trialUsersSnapshot.empty) {
-            console.log('No trial users found');
+        console.log(`Found ${trialSubscriptionsSnapshot.size} trials in subscriptions collection`);
+        
+        if (trialSubscriptionsSnapshot.empty) {
+            console.log('No trial subscriptions found');
             return;
         }
         
-        const expiredTrials = trialUsersSnapshot.docs.filter(doc => {
+        // Process expired trials
+        const expiredSubscriptions = trialSubscriptionsSnapshot.docs.filter(doc => {
             const data = doc.data();
-            return data.trialEndDate && data.trialEndDate <= now.toISOString();
+            if (!data.trialEndDate) return false;
+            
+            // Handle different date formats from Firestore
+            let trialEndDate;
+            if (data.trialEndDate instanceof Date) {
+                trialEndDate = data.trialEndDate;
+            } else if (data.trialEndDate.toDate && typeof data.trialEndDate.toDate === 'function') {
+                // Firestore Timestamp
+                trialEndDate = data.trialEndDate.toDate();
+            } else if (typeof data.trialEndDate === 'string') {
+                trialEndDate = new Date(data.trialEndDate);
+            } else {
+                console.error(`Invalid trialEndDate format for ${doc.id}:`, data.trialEndDate);
+                return false;
+            }
+            
+            const isExpired = trialEndDate <= now;
+            if (isExpired) {
+                console.log(`EXPIRED TRIAL FOUND: ${doc.id}, expired: ${trialEndDate.toISOString()}`);
+            }
+            return isExpired;
         });
         
-        if (expiredTrials.length === 0) {
+        if (expiredSubscriptions.length === 0) {
             console.log('No expired trials found');
             return;
         }
         
-        console.log(`Found ${expiredTrials.length} expired trials to process`);
+        console.log(`Found ${expiredSubscriptions.length} expired trials to process`);
         
-        for (const doc of expiredTrials) {
-            const userId = doc.id;
-            const userData = doc.data();
+        // Process expired subscriptions
+        for (const doc of expiredSubscriptions) {
+            const subscriptionId = doc.id;
+            const subscriptionData = doc.data();
+            const userId = subscriptionData.userId;
             
-            let isSubscriptionValid = true;
-            if (userData.subscriptionCode) {
-                try {
-                    const subscriptionStatus = await verifySubscriptionStatus(userData.subscriptionCode);
-                    isSubscriptionValid = subscriptionStatus === 'active';
-                    
-                    if (!isSubscriptionValid) {
-                        console.log(`Subscription ${userData.subscriptionCode} is no longer valid for user ${userId}`);
-                    }
-                } catch (error) {
-                    console.error(`Error verifying subscription for ${userId}:`, error);
+            console.log(`Processing expired subscription ${subscriptionId} for user ${userId}`);
+            
+            // Update subscription status
+            await doc.ref.update({
+                status: 'active',
+                subscriptionStart: new Date().toISOString(),
+                subscriptionEnd: calculateNextBilling(subscriptionData),
+                lastUpdated: new Date().toISOString()
+            });
+            
+            // Update user status
+            if (userId) {
+                const userRef = db.collection('users').doc(userId);
+                const userDoc = await userRef.get();
+                if (userDoc.exists) {
+                    await userRef.update({
+                        subscriptionStatus: 'active',
+                        plan: 'premium',
+                        lastUpdated: new Date().toISOString()
+                    });
+                    console.log(`Updated user ${userId} status to active`);
                 }
             }
             
-            if (isSubscriptionValid) {
-                console.log(`Converting trial to active subscription for user: ${userId}`);
-                
-                await doc.ref.update({
-                    subscriptionStatus: 'active',
-                    lastUpdated: new Date().toISOString(),
-                    trialEndDate: new Date().toISOString(),
-                    firstBillingDate: new Date().toISOString()
-                });
-                
-                await db.collection('subscriptions').doc(userId).update({
-                    status: 'active',
-                    trialEndDate: new Date().toISOString(),
-                    firstBillingDate: new Date().toISOString(),
-                    lastUpdated: new Date().toISOString()
-                });
-                
-                console.log(`User ${userId} subscription updated from trial to active`);
-            } else {
-                console.log(`Marking cancelled trial for user: ${userId}`);
-                
-                await doc.ref.update({
-                    subscriptionStatus: 'cancelled',
-                    plan: 'free',
-                    lastUpdated: new Date().toISOString(),
-                    trialEndDate: new Date().toISOString(),
-                    cancellationDate: new Date().toISOString()
-                });
-                
-                await db.collection('subscriptions').doc(userId).update({
-                    status: 'cancelled',
-                    trialEndDate: new Date().toISOString(),
-                    cancellationDate: new Date().toISOString(),
-                    lastUpdated: new Date().toISOString(),
-                });
-                
-                console.log(`User ${userId} trial marked as cancelled and plan changed to free`);
-            }
+            console.log(`Subscription ${subscriptionId} transitioned from trial to active`);
         }
     } catch (error) {
         console.error('Error checking expired trials:', error);
@@ -641,7 +657,8 @@ const verifySubscriptionStatus = async (subscriptionCode) => {
     });
 };
 
-setInterval(checkExpiredTrials, 60 * 1000);
+// Check for expired trials every 24 hours
+setInterval(checkExpiredTrials, 24 * 60 * 60 * 1000);
 
 app.use((error, req, res, next) => {
     console.error('Error:', error);
