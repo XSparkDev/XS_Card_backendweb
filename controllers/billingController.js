@@ -273,6 +273,307 @@ const deletePaymentMethod = async (req, res) => {
 };
 
 /**
+ * Add a new payment method for the user
+ * This creates a Paystack authorization and stores it in our database
+ */
+const addPaymentMethod = async (req, res) => {
+    try {
+        const userId = req.user.uid;
+        const { email, amount = 100 } = req.body; // Default R1.00 verification amount
+
+        // Get user document to find customer code or create new customer
+        const userDoc = await db.collection('users').doc(userId).get();
+        
+        if (!userDoc.exists) {
+            return res.status(404).json({
+                status: false,
+                message: 'User not found'
+            });
+        }
+
+        const userData = userDoc.data();
+        let customerCode = userData.customerCode;
+        
+        // Check subscriptions collection if no customerCode in users
+        if (!customerCode) {
+            const subscriptionDoc = await db.collection('subscriptions').doc(userId).get();
+            if (subscriptionDoc.exists) {
+                const subscriptionData = subscriptionDoc.data();
+                customerCode = subscriptionData.customerCode;
+            }
+        }
+
+        const userEmail = email || userData.email;
+        if (!userEmail) {
+            return res.status(400).json({
+                status: false,
+                message: 'Email is required'
+            });
+        }
+
+        const baseUrl = process.env.APP_URL;
+
+        // Prepare Paystack request parameters for payment method verification
+        const params = JSON.stringify({
+            email: userEmail,
+            amount: amount, // Verification amount in kobo (R1.00 = 100 kobo)
+            callback_url: `${baseUrl}/billing/payment-method/callback`,
+            metadata: {
+                userId: userId,
+                isPaymentMethodSetup: true,
+                customerCode: customerCode || null
+            }
+        });
+
+        // Configure Paystack API request
+        const options = {
+            hostname: 'api.paystack.co',
+            port: 443,
+            path: '/transaction/initialize',
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+                'Content-Type': 'application/json'
+            }
+        };
+
+        // Make the request to Paystack
+        const paymentReq = https.request(options, paymentRes => {
+            let data = '';
+
+            paymentRes.on('data', (chunk) => {
+                data += chunk;
+            });
+
+            paymentRes.on('end', () => {
+                try {
+                    const response = JSON.parse(data);
+                    
+                    if (response.status) {
+                        // Log the payment method setup initiation
+                        logActivity({
+                            action: ACTIONS.CREATE,
+                            resource: 'PAYMENT_METHOD_SETUP',
+                            userId: userId,
+                            resourceId: response.data.reference,
+                            details: {
+                                email: userEmail,
+                                amount: amount / 100,
+                                verificationOnly: true
+                            }
+                        });
+                    }
+                    
+                    res.status(200).json(response);
+                } catch (error) {
+                    console.error('JSON parsing error:', error);
+                    res.status(500).json({
+                        status: false,
+                        message: 'Failed to parse Paystack response',
+                        error: error.message
+                    });
+                }
+            });
+        });
+
+        paymentReq.on('error', (error) => {
+            console.error('Payment method setup error:', error);
+            res.status(500).json({ 
+                status: false,
+                message: 'Payment method setup failed',
+                error: error.message 
+            });
+        });
+
+        paymentReq.write(params);
+        paymentReq.end();
+
+    } catch (error) {
+        console.error('Add payment method controller error:', error);
+        res.status(500).json({ 
+            status: false,
+            message: 'Internal server error',
+            error: error.message 
+        });
+    }
+};
+
+/**
+ * Handle payment method callback from Paystack
+ * This processes the verification payment and stores the payment method
+ */
+const handlePaymentMethodCallback = async (req, res) => {
+    try {
+        const reference = req.method === 'POST' ? req.body.data?.reference : req.query.reference;
+        
+        if (!reference) {
+            console.error('No reference provided');
+            return res.status(400).json({ message: 'No reference provided' });
+        }
+
+        console.log('Processing payment method reference:', reference);
+        
+        // Verify transaction with Paystack
+        const paymentData = await verifyTransaction(reference);
+        console.log('Payment method verification response:', paymentData);
+        
+        if (paymentData.status && paymentData.data.status === 'success') {
+            // Get user info from payment data
+            const userEmail = paymentData.data.customer.email;
+            const customerCode = paymentData.data.customer.customer_code;
+            const metadata = paymentData.data.metadata || {};
+            const userId = metadata.userId;
+            
+            if (!userId) {
+                console.error('No userId in metadata');
+                return res.status(400).json({ message: 'Invalid payment method setup' });
+            }
+            
+            // Issue refund for verification amount
+            const refundResult = await issueVerificationRefund(reference);
+            if (!refundResult.status) {
+                console.error('Failed to issue refund:', refundResult);
+            }
+            
+            // Store the payment method
+            if (paymentData.data.authorization) {
+                const paymentMethodId = await storePaymentMethod(userId, customerCode, paymentData.data.authorization);
+                
+                // Log successful payment method addition
+                await logActivity({
+                    action: ACTIONS.CREATE,
+                    resource: 'PAYMENT_METHOD',
+                    userId: userId,
+                    resourceId: paymentMethodId,
+                    details: {
+                        brand: paymentData.data.authorization.brand,
+                        last4: paymentData.data.authorization.last4,
+                        source: 'manual_addition'
+                    }
+                });
+                
+                console.log('Payment method added successfully');
+            }
+            
+            // Redirect or respond based on request method
+            if (req.method === 'GET') {
+                return res.redirect('/payment-method-success.html');
+            } else {
+                return res.status(200).json({ 
+                    status: 'success',
+                    message: 'Payment method added successfully'
+                });
+            }
+        } else {
+            console.error('Payment method verification failed:', paymentData);
+            if (req.method === 'GET') {
+                return res.redirect('/payment-method-failed.html');
+            } else {
+                return res.status(400).json({ 
+                    status: 'failed',
+                    message: 'Payment method verification failed'
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Payment method callback error:', error);
+        res.status(500).json({ 
+            status: 'error',
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Verify transaction with Paystack
+ */
+const verifyTransaction = async (reference) => {
+    const options = {
+        hostname: 'api.paystack.co',
+        port: 443,
+        path: `/transaction/verify/${reference}`,
+        method: 'GET',
+        headers: {
+            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+            'Content-Type': 'application/json'
+        }
+    };
+
+    return new Promise((resolve, reject) => {
+        const req = https.request(options, res => {
+            let data = '';
+
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+
+            res.on('end', () => {
+                try {
+                    const response = JSON.parse(data);
+                    resolve(response);
+                } catch (error) {
+                    reject(new Error(`JSON parsing error: ${error.message}`));
+                }
+            });
+        });
+
+        req.on('error', (error) => {
+            reject(error);
+        });
+
+        req.end();
+    });
+};
+
+/**
+ * Issue refund for verification amount
+ */
+const issueVerificationRefund = async (reference) => {
+    const params = JSON.stringify({
+        transaction: reference,
+        amount: 100 // R1.00 in kobo
+    });
+
+    const options = {
+        hostname: 'api.paystack.co',
+        port: 443,
+        path: '/refund',
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+            'Content-Type': 'application/json'
+        }
+    };
+
+    return new Promise((resolve, reject) => {
+        const req = https.request(options, res => {
+            let data = '';
+
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+
+            res.on('end', () => {
+                try {
+                    const response = JSON.parse(data);
+                    resolve(response);
+                } catch (error) {
+                    reject(new Error(`JSON parsing error: ${error.message}`));
+                }
+            });
+        });
+
+        req.on('error', (error) => {
+            reject(error);
+        });
+
+        req.write(params);
+        req.end();
+    });
+};
+
+/**
  * Helper function to get customer data from Paystack
  */
 const getPaystackCustomer = async (customerCode) => {
@@ -357,5 +658,7 @@ module.exports = {
     getPaymentMethods,
     updatePaymentMethod,
     deletePaymentMethod,
-    storePaymentMethod
-}; 
+    storePaymentMethod,
+    addPaymentMethod,
+    handlePaymentMethodCallback
+};

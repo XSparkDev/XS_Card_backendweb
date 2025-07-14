@@ -3,7 +3,9 @@ const router = express.Router();
 const { 
     getPaymentMethods,
     updatePaymentMethod,
-    deletePaymentMethod
+    deletePaymentMethod,
+    addPaymentMethod,
+    handlePaymentMethodCallback
 } = require('../controllers/billingController');
 const { authenticateUser } = require('../middleware/auth');
 const { db } = require('../firebase');
@@ -62,7 +64,12 @@ router.get('/billing/debug/payment-methods', async (req, res) => {
 
 // Payment Methods endpoints
 router.get('/billing/payment-methods', getPaymentMethods);
+router.post('/billing/payment-methods', addPaymentMethod);
 router.put('/billing/payment-methods/:id', updatePaymentMethod);
 router.delete('/billing/payment-methods/:id', deletePaymentMethod);
+
+// Payment method callback endpoint
+router.get('/billing/payment-method/callback', handlePaymentMethodCallback);
+router.post('/billing/payment-method/callback', handlePaymentMethodCallback);
 
 module.exports = router; 
