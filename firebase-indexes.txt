@@ -6,7 +6,7 @@ Follow these steps to create the necessary indexes:
 1. Open the Firestore Console
    Go to: https://console.firebase.google.com/project/xscard-addd4/firestore/indexes
 
-2. Create the following composite indexes for the "activityLogs" collection:
+2. Create the following composite indexes for the "activityLogs" collection: 
 
    ## For action-based queries:
    - Fields:
@@ -47,6 +47,20 @@ Follow these steps to create the necessary indexes:
    ## URGENT: Index Required for /logs/action/login
 
    You're currently seeing this error because the query is trying to filter by `action='login'` and sort by `timestamp` at the same time, which requires a composite index.
+
+## Enterprise Invoices Index (REQUIRED for /billing/invoices endpoint)
+
+   ## For enterprise invoice queries:
+   - Fields:
+     * enterpriseId (Ascending)
+     * date (Descending)
+   - Collection Group: enterpriseInvoices
+   - Query scope: Collection
+
+   This index is required for the /billing/invoices endpoint to work properly.
+   Without this index, the endpoint will use a fallback query but performance will be degraded.
+
+   Create this index at: https://console.firebase.google.com/project/xscard-addd4/firestore/indexes
 
    Steps to fix:
 

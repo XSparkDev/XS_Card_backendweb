@@ -10,6 +10,9 @@ const {
 const { authenticateUser } = require('../middleware/auth');
 const { db } = require('../firebase');
 
+// Import enterprise controller for invoices functionality
+const enterpriseController = require('../controllers/enterpriseController');
+
 // All billing routes require authentication
 router.use(authenticateUser);
 
@@ -71,5 +74,9 @@ router.delete('/billing/payment-methods/:id', deletePaymentMethod);
 // Payment method callback endpoint
 router.get('/billing/payment-method/callback', handlePaymentMethodCallback);
 router.post('/billing/payment-method/callback', handlePaymentMethodCallback);
+
+// Invoices endpoint - reuses enterprise controller logic
+router.get('/billing/invoices', enterpriseController.getEnterpriseInvoices);
+router.get('/billing/invoices/:invoiceId/download', enterpriseController.downloadInvoice);
 
 module.exports = router; 

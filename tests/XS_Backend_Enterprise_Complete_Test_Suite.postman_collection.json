@@ -1,0 +1,2452 @@
+{
+  "info": {
+    "name": "XS Backend Enterprise Complete Test Suite",
+    "description": "Comprehensive test collection for all XS Backend Enterprise features including authentication, CRUD operations, caching, performance testing, and error scenarios",
+    "version": "2.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8383",
+      "description": "Base URL for the XS Backend API"
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "description": "Authentication token for protected endpoints"
+    },
+    {
+      "key": "enterpriseId",
+      "value": "test-enterprise",
+      "description": "Test enterprise ID"
+    },
+    {
+      "key": "departmentId",
+      "value": "engineering",
+      "description": "Test department ID"
+    },
+    {
+      "key": "teamId",
+      "value": "backend-team",
+      "description": "Test team ID"
+    },
+    {
+      "key": "employeeId",
+      "value": "",
+      "description": "Test employee ID (set dynamically)"
+    },
+    {
+      "key": "userId",
+      "value": "test-user-123",
+      "description": "Test user ID for authentication"
+    },
+    {
+      "key": "invoiceId",
+      "value": "",
+      "description": "Test invoice ID (set dynamically)"
+    }
+  ],
+  "item": [
+    {
+      "name": "🔐 Authentication & Authorization",
+      "item": [
+        {
+          "name": "Test Unauthenticated Request (Should Fail)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise"]
+            },
+            "description": "Tests that unauthenticated requests are properly rejected"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Unauthenticated request should fail', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                  "});",
+                  "",
+                  "pm.test('Should return error message', function () {",
+                  "    pm.response.to.have.jsonBody();",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('message');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Set Authentication Token",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise"]
+            },
+            "description": "Validates authentication token works"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Authenticated request should succeed', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "pm.test('Response should have valid structure', function () {",
+                  "    pm.response.to.have.jsonBody();",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Authentication and authorization testing"
+    },
+    {
+      "name": "🏢 Enterprise Management",
+      "item": [
+        {
+          "name": "1. Create Test Enterprise",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"name\": \"Test Enterprise Corp\",\n  \"description\": \"A test enterprise for comprehensive API testing\",\n  \"industry\": \"Technology\",\n  \"website\": \"https://testenterprise.com\",\n  \"logoUrl\": \"https://testenterprise.com/logo.png\",\n  \"colorScheme\": \"#007bff\",\n  \"companySize\": \"100-500\",\n  \"address\": {\n    \"street\": \"123 Test Street\",\n    \"city\": \"Test City\",\n    \"state\": \"Test State\",\n    \"zipCode\": \"12345\",\n    \"country\": \"Test Country\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise"]
+            },
+            "description": "Creates a new enterprise for testing"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Enterprise created successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(201);",
+                  "});",
+                  "",
+                  "pm.test('Response contains enterprise data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.true;",
+                  "    pm.expect(jsonData.data.enterprise).to.have.property('id');",
+                  "    pm.expect(jsonData.data.enterprise.name).to.equal('Test Enterprise Corp');",
+                  "    ",
+                  "    // Store enterprise ID for future tests",
+                  "    pm.collectionVariables.set('enterpriseId', jsonData.data.enterprise.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Get All Enterprises",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise"]
+            },
+            "description": "Retrieves all enterprises"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Get all enterprises successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains enterprises array', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.true;",
+                  "    pm.expect(jsonData.data).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Get Enterprise by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}"]
+            },
+            "description": "Retrieves a specific enterprise by ID"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Get enterprise by ID successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains enterprise data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.true;",
+                  "    pm.expect(jsonData.data.enterprise).to.have.property('id');",
+                  "    pm.expect(jsonData.data.enterprise.name).to.equal('Test Enterprise Corp');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Update Enterprise",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"name\": \"Updated Test Enterprise Corp\",\n  \"description\": \"Updated description for comprehensive API testing\",\n  \"industry\": \"Software Technology\",\n  \"companySize\": \"500-1000\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}"]
+            },
+            "description": "Updates an existing enterprise"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Enterprise updated successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains updated data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.true;",
+                  "    pm.expect(jsonData.data.enterprise.name).to.equal('Updated Test Enterprise Corp');",
+                  "    pm.expect(jsonData.data.enterprise.companySize).to.equal('500-1000');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Get Enterprise Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "stats"]
+            },
+            "description": "Gets enterprise statistics"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Get enterprise stats successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains stats data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.true;",
+                  "    pm.expect(jsonData.data.stats).to.have.property('totalUsers');",
+                  "    pm.expect(jsonData.data.stats).to.have.property('activeUsers');",
+                  "    pm.expect(jsonData.data.stats).to.have.property('departments');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Enterprise CRUD operations and statistics"
+    },
+    {
+      "name": "🏬 Department Management",
+      "item": [
+        {
+          "name": "1. Create Department",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"name\": \"Engineering\",\n  \"description\": \"Software engineering department\",\n  \"managers\": []\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments"]
+            },
+            "description": "Creates a new department"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Department created successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(201);",
+                  "});",
+                  "",
+                  "pm.test('Response contains department data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.department).to.have.property('id');",
+                  "    pm.expect(jsonData.department.name).to.equal('Engineering');",
+                  "    ",
+                  "    // Store department ID for future tests",
+                  "    pm.collectionVariables.set('departmentId', jsonData.department.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Create Sales Department",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"name\": \"Sales\",\n  \"description\": \"Sales and marketing department\",\n  \"managers\": []\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments"]
+            },
+            "description": "Creates a sales department for testing"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Sales department created successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(201);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Get All Departments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments"]
+            },
+            "description": "Gets all departments for the enterprise"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Get all departments successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains departments array', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.departments).to.be.an('array');",
+                  "    pm.expect(jsonData.departments.length).to.be.at.least(2);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Get Department by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}"]
+            },
+            "description": "Gets a specific department by ID"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Get department by ID successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains department data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.department).to.have.property('id');",
+                  "    pm.expect(jsonData.department.name).to.equal('Engineering');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Update Department",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"name\": \"Software Engineering\",\n  \"description\": \"Updated software engineering department with full-stack development focus\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}"]
+            },
+            "description": "Updates an existing department"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Department updated successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains updated data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.department.name).to.equal('Software Engineering');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Department CRUD operations"
+    },
+    {
+      "name": "👥 Employee Management",
+      "item": [
+        {
+          "name": "1. Add Employee to Department",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"email\": \"john.doe@testenterprise.com\",\n  \"phone\": \"+1234567890\",\n  \"position\": \"Senior Software Engineer\",\n  \"role\": \"employee\",\n  \"isActive\": true,\n  \"startDate\": \"2024-01-15\",\n  \"salary\": 85000,\n  \"skills\": [\"JavaScript\", \"Node.js\", \"React\", \"MongoDB\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/employees",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "employees"]
+            },
+            "description": "Adds a new employee to a department"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Employee added successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(201);",
+                  "});",
+                  "",
+                  "pm.test('Response contains employee data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.employee).to.have.property('id');",
+                  "    pm.expect(jsonData.employee.firstName).to.equal('John');",
+                  "    pm.expect(jsonData.employee.lastName).to.equal('Doe');",
+                  "    ",
+                  "    // Store employee ID for future tests",
+                  "    pm.collectionVariables.set('employeeId', jsonData.employee.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Add Team Lead Employee",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"firstName\": \"Jane\",\n  \"lastName\": \"Smith\",\n  \"email\": \"jane.smith@testenterprise.com\",\n  \"phone\": \"+1234567891\",\n  \"position\": \"Engineering Team Lead\",\n  \"role\": \"manager\",\n  \"isActive\": true,\n  \"startDate\": \"2023-06-01\",\n  \"salary\": 95000,\n  \"skills\": [\"Leadership\", \"JavaScript\", \"Python\", \"Architecture\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/employees",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "employees"]
+            },
+            "description": "Adds a team lead employee"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Team lead added successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(201);",
+                  "});",
+                  "",
+                  "pm.test('Response contains team lead data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.employee.role).to.equal('manager');",
+                  "    ",
+                  "    // Store team lead ID for team creation",
+                  "    pm.collectionVariables.set('teamLeadId', jsonData.employee.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Get All Department Employees",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/employees",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "employees"]
+            },
+            "description": "Gets all employees in a department"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Get department employees successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains employees array', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.employees).to.be.an('array');",
+                  "    pm.expect(jsonData.employees.length).to.be.at.least(2);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Get Employee by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/employees/{{employeeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "employees", "{{employeeId}}"]
+            },
+            "description": "Gets a specific employee by ID"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Get employee by ID successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains employee data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.employee).to.have.property('id');",
+                  "    pm.expect(jsonData.employee.firstName).to.equal('John');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Update Employee",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"position\": \"Lead Software Engineer\",\n  \"salary\": 90000,\n  \"skills\": [\"JavaScript\", \"Node.js\", \"React\", \"MongoDB\", \"TypeScript\", \"AWS\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/employees/{{employeeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "employees", "{{employeeId}}"]
+            },
+            "description": "Updates an existing employee"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Employee updated successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains updated data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.employee.position).to.equal('Lead Software Engineer');",
+                  "    pm.expect(jsonData.employee.salary).to.equal(90000);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. Get All Enterprise Employees",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/employees",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "employees"]
+            },
+            "description": "Gets all employees across the entire enterprise"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Get all enterprise employees successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains employees from all departments', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.employees).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Employee management operations"
+    },
+    {
+      "name": "👥 Team Management",
+      "item": [
+        {
+          "name": "1. Create Team",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"name\": \"Backend Team\",\n  \"description\": \"Backend development team focusing on API and database development\",\n  \"leaderId\": \"{{teamLeadId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/teams",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "teams"]
+            },
+            "description": "Creates a new team within a department"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Team created successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(201);",
+                  "});",
+                  "",
+                  "pm.test('Response contains team data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.team).to.have.property('id');",
+                  "    pm.expect(jsonData.team.name).to.equal('Backend Team');",
+                  "    ",
+                  "    // Store team ID for future tests",
+                  "    pm.collectionVariables.set('teamId', jsonData.team.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Create Frontend Team",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"name\": \"Frontend Team\",\n  \"description\": \"Frontend development team focusing on user interfaces and user experience\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/teams",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "teams"]
+            },
+            "description": "Creates a frontend team"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Frontend team created successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(201);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Get All Teams",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/teams",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "teams"]
+            },
+            "description": "Gets all teams in a department"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Get all teams successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains teams array', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.teams).to.be.an('array');",
+                  "    pm.expect(jsonData.teams.length).to.be.at.least(2);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Get Team by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/teams/{{teamId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "teams", "{{teamId}}"]
+            },
+            "description": "Gets a specific team by ID"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Get team by ID successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains team data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.team).to.have.property('id');",
+                  "    pm.expect(jsonData.team.name).to.equal('Backend Team');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Update Team",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"name\": \"Backend Development Team\",\n  \"description\": \"Updated backend development team focusing on microservices and API development\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/teams/{{teamId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "teams", "{{teamId}}"]
+            },
+            "description": "Updates an existing team"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Team updated successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains updated data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.team.name).to.equal('Backend Development Team');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. Get Team Members",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/teams/{{teamId}}/members",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "teams", "{{teamId}}", "members"]
+            },
+            "description": "Gets all members of a team"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Get team members successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains members data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData).to.have.property('members');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Team management operations"
+    },
+    {
+      "name": "📞 Contact Aggregation & Caching",
+      "item": [
+        {
+          "name": "1. Enterprise Contacts Summary (Cache Miss)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "contacts", "summary"]
+            },
+            "description": "First call - triggers expensive calculation and cache population"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Enterprise contacts summary successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains summary data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data).to.have.property('totalContacts');",
+                  "    pm.expect(jsonData.data).to.have.property('departmentBreakdown');",
+                  "});",
+                  "",
+                  "console.log(`Cache Miss Response Time: ${pm.response.responseTime}ms`);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Enterprise Contacts Summary (Cache Hit)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "contacts", "summary"]
+            },
+            "description": "Second call - serves from cache (should be much faster)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Cached response is fast', function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(100);",
+                  "});",
+                  "",
+                  "pm.test('Response contains same data structure', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data).to.have.property('totalContacts');",
+                  "});",
+                  "",
+                  "console.log(`Cache Hit Response Time: ${pm.response.responseTime}ms`);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Department Contacts Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/contacts/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "contacts", "summary"]
+            },
+            "description": "Department-level contact aggregation"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Department contacts summary successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains department summary', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data).to.have.property('departmentId');",
+                  "    pm.expect(jsonData.data.departmentId).to.equal(pm.collectionVariables.get('departmentId'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Enterprise Contacts Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/details",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "contacts", "details"]
+            },
+            "description": "Get detailed contact information across the enterprise"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Enterprise contacts details successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains detailed contact data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data).to.have.property('contacts');",
+                  "    pm.expect(jsonData.data.contacts).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Department Contacts Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/contacts/details",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "contacts", "details"]
+            },
+            "description": "Get detailed contact information for a specific department"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Department contacts details successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains department contact details', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data).to.have.property('contacts');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Contact aggregation with high-performance caching"
+    },
+    {
+      "name": "🔧 Cache Management",
+      "item": [
+        {
+          "name": "1. Get Cache Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["cache", "stats"]
+            },
+            "description": "Get cache performance metrics"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Cache stats retrieved successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains cache metrics', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.stats).to.have.property('hitCount');",
+                  "    pm.expect(jsonData.stats).to.have.property('missCount');",
+                  "    pm.expect(jsonData.stats).to.have.property('hitRatio');",
+                  "    pm.expect(jsonData.stats).to.have.property('totalEntries');",
+                  "});",
+                  "",
+                  "console.log('Cache Statistics:', JSON.stringify(pm.response.json().stats, null, 2));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Get Cache Configuration",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/config",
+              "host": ["{{baseUrl}}"],
+              "path": ["cache", "config"]
+            },
+            "description": "Get current cache configuration"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Cache config retrieved successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains configuration data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.config).to.have.property('ttlSettings');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Update Cache Configuration",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"ttlSettings\": {\n    \"enterprise\": 7200000,\n    \"department\": 3600000,\n    \"default\": 1800000\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/cache/config",
+              "host": ["{{baseUrl}}"],
+              "path": ["cache", "config"]
+            },
+            "description": "Update cache TTL settings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Cache config updated successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response confirms update', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.message).to.include('updated');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Get Cache Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/analytics",
+              "host": ["{{baseUrl}}"],
+              "path": ["cache", "analytics"]
+            },
+            "description": "Get advanced cache analytics"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Cache analytics retrieved successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains analytics data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.analytics).to.have.property('accessPatterns');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Warm Cache for Enterprises",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"enterpriseIds\": [\n    \"{{enterpriseId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/cache/warm",
+              "host": ["{{baseUrl}}"],
+              "path": ["cache", "warm"]
+            },
+            "description": "Preload cache for specified enterprises"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Cache warming initiated successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains warming status', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.message).to.include('warming');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. Clear Department Caches",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/departments/clear",
+              "host": ["{{baseUrl}}"],
+              "path": ["cache", "departments", "clear"]
+            },
+            "description": "Clear all department-level caches"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Department caches cleared successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains clear status', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.message).to.include('cleared');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. Clear All Cache",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/clear",
+              "host": ["{{baseUrl}}"],
+              "path": ["cache", "clear"]
+            },
+            "description": "Clear all cached data"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('All caches cleared successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains clear confirmation', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.message).to.include('cleared');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Cache management and analytics"
+    },
+    {
+      "name": "💰 Enterprise Billing & Invoicing",
+      "item": [
+        {
+          "name": "1. Submit Demo Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"companyName\": \"Test Enterprise Corp\",\n  \"contactPersonName\": \"John Demo\",\n  \"email\": \"john.demo@testenterprise.com\",\n  \"phone\": \"+1234567890\",\n  \"companySize\": \"100-500\",\n  \"industry\": \"Technology\",\n  \"estimatedUsers\": 250,\n  \"specificRequirements\": \"Need integration with existing LDAP system and custom reporting\",\n  \"preferredContactTime\": \"Business hours (9-5 EST)\",\n  \"currentSolution\": \"Using spreadsheets and email\",\n  \"budget\": \"$10,000-$25,000 annually\",\n  \"timeline\": \"Q2 2024\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/demo",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "demo"]
+            },
+            "description": "Submit a demo request"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Demo request submitted successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains inquiry ID', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.true;",
+                  "    pm.expect(jsonData.data).to.have.property('inquiryId');",
+                  "    pm.expect(jsonData.data.inquiryId).to.include('demo_');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Submit Enterprise Inquiry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"companyName\": \"Test Enterprise Corp\",\n  \"contactPersonName\": \"Jane Inquiry\",\n  \"email\": \"jane.inquiry@testenterprise.com\",\n  \"phone\": \"+1234567891\",\n  \"companySize\": \"500-1000\",\n  \"industry\": \"Healthcare\",\n  \"estimatedUsers\": 750,\n  \"specificRequirements\": \"HIPAA compliance required, multi-tenant architecture\",\n  \"preferredContactTime\": \"Afternoons preferred\",\n  \"inquiryType\": \"pricing\",\n  \"currentSolution\": \"Legacy system\",\n  \"budget\": \"$50,000+ annually\",\n  \"timeline\": \"ASAP\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/inquiry",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "inquiry"]
+            },
+            "description": "Submit a general enterprise inquiry"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Enterprise inquiry submitted successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains inquiry ID', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.true;",
+                  "    pm.expect(jsonData.data).to.have.property('inquiryId');",
+                  "    pm.expect(jsonData.data.inquiryId).to.include('inquiry_');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Create Sample Invoices (Dev Only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/create-sample-invoices",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "create-sample-invoices"]
+            },
+            "description": "Creates sample invoices for testing (development only)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Sample invoices created successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains creation confirmation', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.true;",
+                  "    pm.expect(jsonData.data).to.have.property('invoicesCreated');",
+                  "    pm.expect(jsonData.data.invoicesCreated).to.be.at.least(1);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Get Enterprise Invoices",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/invoices",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "invoices"]
+            },
+            "description": "Get all invoices for the enterprise"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Enterprise invoices retrieved successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains invoices array', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.true;",
+                  "    pm.expect(jsonData.data).to.be.an('array');",
+                  "    ",
+                  "    if (jsonData.data.length > 0) {",
+                  "        const invoice = jsonData.data[0];",
+                  "        pm.expect(invoice).to.have.property('id');",
+                  "        pm.expect(invoice).to.have.property('number');",
+                  "        pm.expect(invoice).to.have.property('amount');",
+                  "        pm.expect(invoice).to.have.property('status');",
+                  "        ",
+                  "        // Store first invoice ID for download test",
+                  "        pm.collectionVariables.set('invoiceId', invoice.id);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Download Invoice",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/invoices/{{invoiceId}}/download",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "invoices", "{{invoiceId}}", "download"]
+            },
+            "description": "Download a specific invoice"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Invoice download request successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains download information', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.true;",
+                  "    pm.expect(jsonData.data).to.have.property('invoiceId');",
+                  "    pm.expect(jsonData.data).to.have.property('filename');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Enterprise billing and invoicing features"
+    },
+    {
+      "name": "📊 Data Export",
+      "item": [
+        {
+          "name": "1. Export Teams (Department Specific)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/exports/teams",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "exports", "teams"]
+            },
+            "description": "Export teams for a specific department as CSV"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Teams export successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains CSV data or teams array', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    // Response might be CSV string or JSON with teams array",
+                  "    pm.expect(jsonData).to.satisfy(function(response) {",
+                  "        return response.teams !== undefined || response.csvData !== undefined;",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Export All Teams (Enterprise Wide)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/exports/teams",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "exports", "teams"]
+            },
+            "description": "Export all teams across the entire enterprise"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Enterprise teams export successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains export data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Data export functionality"
+    },
+    {
+      "name": "🚀 Performance & Load Testing",
+      "item": [
+        {
+          "name": "1. Performance Baseline - Clear Cache",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/clear",
+              "host": ["{{baseUrl}}"],
+              "path": ["cache", "clear"]
+            },
+            "description": "Clear cache to establish performance baseline"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Cache cleared for performance test', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Performance Test - Cold Cache",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "contacts", "summary"]
+            },
+            "description": "Performance test with cold cache (expected: slow)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Cold cache request completed', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "const responseTime = pm.response.responseTime;",
+                  "console.log(`🔥 Cold Cache Performance: ${responseTime}ms`);",
+                  "",
+                  "pm.test('Response time recorded', function () {",
+                  "    pm.expect(responseTime).to.be.above(0);",
+                  "});",
+                  "",
+                  "// Store cold cache time for comparison",
+                  "pm.collectionVariables.set('coldCacheTime', responseTime);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Performance Test - Warm Cache",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "contacts", "summary"]
+            },
+            "description": "Performance test with warm cache (expected: fast)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Warm cache request completed', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "const responseTime = pm.response.responseTime;",
+                  "const coldCacheTime = pm.collectionVariables.get('coldCacheTime');",
+                  "",
+                  "console.log(`⚡ Warm Cache Performance: ${responseTime}ms`);",
+                  "console.log(`🔥 Cold Cache Performance: ${coldCacheTime}ms`);",
+                  "",
+                  "if (coldCacheTime && responseTime) {",
+                  "    const improvement = Math.round(coldCacheTime / responseTime);",
+                  "    console.log(`🚀 Performance Improvement: ${improvement}x faster`);",
+                  "    ",
+                  "    pm.test('Cache provides significant performance improvement', function () {",
+                  "        pm.expect(improvement).to.be.above(2);",
+                  "    });",
+                  "}",
+                  "",
+                  "pm.test('Warm cache is fast', function () {",
+                  "    pm.expect(responseTime).to.be.below(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Load Test - Concurrent Requests",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/contacts/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "contacts", "summary"]
+            },
+            "description": "Load test - run this multiple times rapidly to test concurrent request handling"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Concurrent request handled successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Response time is acceptable under load', function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+                  "});",
+                  "",
+                  "console.log(`Concurrent Request Response Time: ${pm.response.responseTime}ms`);"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Performance and load testing scenarios"
+    },
+    {
+      "name": "❌ Error Handling & Edge Cases",
+      "item": [
+        {
+          "name": "1. Invalid Enterprise ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/invalid-enterprise-id",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "invalid-enterprise-id"]
+            },
+            "description": "Test error handling for invalid enterprise ID"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Invalid enterprise ID returns 404', function () {",
+                  "    pm.expect(pm.response.code).to.equal(404);",
+                  "});",
+                  "",
+                  "pm.test('Error response has proper structure', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.false;",
+                  "    pm.expect(jsonData).to.have.property('message');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Invalid Department ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/invalid-department",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "invalid-department"]
+            },
+            "description": "Test error handling for invalid department ID"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Invalid department ID returns 404', function () {",
+                  "    pm.expect(pm.response.code).to.equal(404);",
+                  "});",
+                  "",
+                  "pm.test('Error response has proper structure', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.false;",
+                  "    pm.expect(jsonData).to.have.property('message');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Create Enterprise with Missing Required Fields",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"description\": \"Enterprise without name\",\n  \"industry\": \"Technology\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise"]
+            },
+            "description": "Test validation for missing required fields"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Missing required field returns 400', function () {",
+                  "    pm.expect(pm.response.code).to.equal(400);",
+                  "});",
+                  "",
+                  "pm.test('Error message indicates missing field', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.false;",
+                  "    pm.expect(jsonData.message).to.include('required');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Create Duplicate Enterprise",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"name\": \"Updated Test Enterprise Corp\",\n  \"description\": \"Duplicate enterprise test\",\n  \"industry\": \"Technology\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise"]
+            },
+            "description": "Test duplicate enterprise creation"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Duplicate enterprise returns 409', function () {",
+                  "    pm.expect(pm.response.code).to.equal(409);",
+                  "});",
+                  "",
+                  "pm.test('Error message indicates duplicate', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.false;",
+                  "    pm.expect(jsonData.message).to.include('already exists');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Invalid JSON in Request Body",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "type": "raw",
+              "raw": "{\n  \"name\": \"Invalid JSON\",\n  \"description\": \"Missing closing quote and brace\"\n  \"industry\": \"Technology\""
+            },
+            "url": {
+              "raw": "{{baseUrl}}/enterprise",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise"]
+            },
+            "description": "Test handling of malformed JSON"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Invalid JSON returns 400', function () {",
+                  "    pm.expect(pm.response.code).to.equal(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Error handling and edge case testing"
+    },
+    {
+      "name": "🧹 Cleanup",
+      "item": [
+        {
+          "name": "1. Delete Test Team",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/teams/{{teamId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "teams", "{{teamId}}"]
+            },
+            "description": "Clean up test team"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Team deleted successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Delete Test Employee",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}/employees/{{employeeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}", "employees", "{{employeeId}}"]
+            },
+            "description": "Clean up test employee"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Employee deleted successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Delete Test Department",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/departments/{{departmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}", "departments", "{{departmentId}}"]
+            },
+            "description": "Clean up test department"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Department deleted successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Delete Test Enterprise",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/enterprise/{{enterpriseId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["enterprise", "{{enterpriseId}}"]
+            },
+            "description": "Clean up test enterprise"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Enterprise deleted successfully', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "console.log('✅ All test data cleaned up successfully!');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Final Cache Clear",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cache/clear",
+              "host": ["{{baseUrl}}"],
+              "path": ["cache", "clear"]
+            },
+            "description": "Final cache cleanup"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Final cache clear successful', function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "console.log('🧹 All caches cleared - test suite completed!');"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Cleanup test data and caches"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-set timestamp for testing",
+          "pm.globals.set('timestamp', new Date().toISOString());",
+          "",
+          "// Set default auth token if not already set",
+          "if (!pm.collectionVariables.get('authToken')) {",
+          "    console.log('⚠️  Please set your authToken in the collection variables');",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global response validation",
+          "pm.test('Response time is acceptable', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(30000);",
+          "});",
+          "",
+          "pm.test('Response has valid JSON structure', function () {",
+          "    pm.response.to.have.jsonBody();",
+          "});",
+          "",
+          "// Log performance for cache-related endpoints",
+          "if (pm.request.url.path.includes('contacts') && pm.request.url.path.includes('summary')) {",
+          "    const responseTime = pm.response.responseTime;",
+          "    if (responseTime < 100) {",
+          "        console.log('⚡ CACHE HIT - Excellent performance!');",
+          "    } else if (responseTime > 1000) {",
+          "        console.log('🔄 CACHE MISS - Expected for first call');",
+          "    }",
+          "}",
+          "",
+          "// Log errors for debugging",
+          "if (pm.response.code >= 400) {",
+          "    console.log(`❌ Error ${pm.response.code}: ${pm.request.name}`);",
+          "    try {",
+          "        const jsonData = pm.response.json();",
+          "        console.log('Error details:', jsonData.message || jsonData);",
+          "    } catch (e) {",
+          "        console.log('Error response:', pm.response.text());",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ]
+} 

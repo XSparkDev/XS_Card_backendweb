@@ -304,11 +304,21 @@ exports.getEnterpriseInvoices = async (req, res) => {
       });
     }
 
-    // Get enterprise invoices
-    const invoicesSnapshot = await db.collection('enterpriseInvoices')
-      .where('enterpriseId', '==', enterpriseId)
-      .orderBy('date', 'desc')
-      .get();
+    // Get enterprise invoices with fallback for missing index
+    let invoicesSnapshot;
+    try {
+      // Try the optimized query first (requires composite index)
+      invoicesSnapshot = await db.collection('enterpriseInvoices')
+        .where('enterpriseId', '==', enterpriseId)
+        .orderBy('date', 'desc')
+        .get();
+    } catch (indexError) {
+      console.log('Composite index not available, using fallback query:', indexError.message);
+      // Fallback: Get all invoices for enterprise without ordering
+      invoicesSnapshot = await db.collection('enterpriseInvoices')
+        .where('enterpriseId', '==', enterpriseId)
+        .get();
+    }
 
     const invoices = [];
     invoicesSnapshot.forEach(doc => {
@@ -322,10 +332,15 @@ exports.getEnterpriseInvoices = async (req, res) => {
         amount: invoiceData.amount,
         currency: invoiceData.currency || 'ZAR',
         status: invoiceData.status,
-        downloadUrl: `/api/enterprise/invoices/${doc.id}/download`,
+        downloadUrl: `/api/billing/invoices/${doc.id}/download`,
         lineItems: invoiceData.lineItems || []
       });
     });
+
+    // Sort manually by date if we used the fallback query
+    if (invoices.length > 0) {
+      invoices.sort((a, b) => new Date(b.date) - new Date(a.date));
+    }
 
     res.status(200).json({
       status: true,

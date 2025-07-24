@@ -8,7 +8,7 @@ const fs = require('fs');
 const https = require('https');
 const cors = require('cors');
 const { db, admin } = require('./firebase.js');
-const { sendMailWithStatus } = require('./public/Utils/emailService');
+const { sendMailWithStatus, sendNotificationEmail } = require('./public/Utils/emailService');
 const { invalidateEnterpriseCache } = require('./controllers/enterprise/contactAggregationController');
 const app = express();
 const port = 8383;
@@ -38,6 +38,7 @@ const departmentsRoutes = require('./routes/departmentsRoutes');
 const activityLogRoutes = require('./routes/activityLogRoutes');
 const enterpriseRoutes = require('./routes/enterpriseRoutes');
 const locationRoutes = require('./routes/locationRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 // Location tracking middleware
 const { enrichContactWithIp, processContactLocation, getClientIp } = require('./contactMiddleware');
@@ -265,9 +266,11 @@ app.post('/AddContact', enrichContactWithIp, async (req, res) => {
             };
 
             try {
-                const mailResult = await sendMailWithStatus(mailOptions);
+                const mailResult = await sendNotificationEmail(userId, 'teamUpdates', mailOptions);
                 if (!mailResult.success) {
                     console.error('Failed to send email notification:', mailResult.error);
+                } else if (mailResult.blocked) {
+                    console.log('Email notification blocked by user preference');
                 }
             } catch (emailError) {
                 console.error('Email sending error:', emailError);
@@ -357,11 +360,13 @@ app.post('/saveContact', async (req, res) => {
                 `
             };
 
-            const mailResult = await sendMailWithStatus(mailOptions);
+            const mailResult = await sendNotificationEmail(userId, 'teamUpdates', mailOptions);
             console.log('Email sending result:', mailResult);
 
             if (!mailResult.success) {
                 console.error('Failed to send email:', mailResult.error);
+            } else if (mailResult.blocked) {
+                console.log('Email notification blocked by user preference');
             }
         }
 
@@ -434,6 +439,7 @@ app.use('/', paymentRoutes);
 app.use('/', billingRoutes);
 app.use('/', activityLogRoutes); // Mount at root instead of /api/logs
 app.use('/', enterpriseRoutes);
+app.use('/', notificationRoutes);
 
 // Modify the user creation route to handle file upload
 app.post('/api/users', upload.single('profileImage'), (req, res, next) => {
