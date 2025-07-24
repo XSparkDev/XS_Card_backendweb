@@ -1,0 +1,57 @@
+[
+  {
+    "test": "GET /enterprise (all enterprises)",
+    "curl": "curl -X GET http://localhost:8383/enterprise -H 'Authorization: Bearer <TOKEN>'",
+    "response": {"status":true,"data":[{"id":"PegXyjZYojbLudlmOmDf","createdAt":{"_seconds":1743414373,"_nanoseconds":608000000},"website":"https://example.com","name":"Company","industry":"Technology","logoUrl":"https://example.com/logo.png","address":{"street":"123 May Street","city":"Ekurhulening","state":"Gauteng","postalCode":"1632","country":"RSA"},"description":"Description of your company","companySize":"100-499","colorScheme":"#1B2B5B","updatedAt":{"_seconds":1750265760,"_nanoseconds":635000000}},{"id":"x-spark","name":"X Spark","description":"Software Development and AI Consultancy","industry":"Technology","website":"https://xspark.co.za","logoUrl":"","colorScheme":"#1B2B5B","companySize":"1-10","address":{"street":"546 16th Rd","building":"Constantia Office Park, Building 2, Ground Floor","suburb":"Randjespark","city":"Midrand","province":"Gauteng","postalCode":"1685","country":"South Africa"},"createdAt":{"_seconds":1745919624,"_nanoseconds":327000000},"updatedAt":{"_seconds":1745919624,"_nanoseconds":327000000}},{"id":"x-spark-test"}]}
+  },
+  {
+    "test": "GET /enterprise/x-spark-test (by ID)",
+    "curl": "curl -X GET http://localhost:8383/enterprise/x-spark-test -H 'Authorization: Bearer <TOKEN>'",
+    "response": {"status":true,"data":{"enterprise":{"id":"x-spark-test"}}}
+  },
+  {
+    "test": "GET /enterprise/non-existent-id (by ID, negative)",
+    "curl": "curl -X GET http://localhost:8383/enterprise/non-existent-id -H 'Authorization: Bearer <TOKEN>'",
+    "response": {"status":false,"message":"Enterprise not found"}
+  },
+  {
+    "test": "POST /enterprise (create, already exists)",
+    "curl": "curl -X POST http://localhost:8383/enterprise -H 'Authorization: Bearer <TOKEN>' -H 'Content-Type: application/json' -d '{\"name\":\"x-spark-test\",\"description\":\"Test enterprise\",\"industry\":\"Tech\",\"website\":\"https://x-spark.com\",\"logoUrl\":\"\",\"colorScheme\":\"#000000\",\"companySize\":\"10-50\",\"address\":{\"city\":\"Test City\"}}'",
+    "response": {"status":false,"message":"Enterprise with this name already exists"}
+  },
+  {
+    "test": "POST /enterprise (create, missing name)",
+    "curl": "curl -X POST http://localhost:8383/enterprise -H 'Authorization: Bearer <TOKEN>' -H 'Content-Type: application/json' -d '{\"description\":\"No name\"}'",
+    "response": {"status":false,"message":"Enterprise name is required"}
+  },
+  {
+    "test": "PUT /enterprise/x-spark-test (update)",
+    "curl": "curl -X PUT http://localhost:8383/enterprise/x-spark-test -H 'Authorization: Bearer <TOKEN>' -H 'Content-Type: application/json' -d '{\"description\":\"Updated description\"}'",
+    "response": {"status":true,"message":"Enterprise updated successfully","data":{"enterprise":{"id":"x-spark-test","description":"Updated description","updatedAt":"2025-07-24T14:02:36.636Z"}}}
+  },
+  {
+    "test": "PUT /enterprise/non-existent-id (update, negative)",
+    "curl": "curl -X PUT http://localhost:8383/enterprise/non-existent-id -H 'Authorization: Bearer <TOKEN>' -H 'Content-Type: application/json' -d '{\"description\":\"Should fail\"}'",
+    "response": {"status":false,"message":"Enterprise not found"}
+  },
+  {
+    "test": "DELETE /enterprise/x-spark-test (delete)",
+    "curl": "curl -X DELETE http://localhost:8383/enterprise/x-spark-test -H 'Authorization: Bearer <TOKEN>'",
+    "response": {"status":true,"message":"Enterprise deleted successfully","data":{"id":"x-spark-test"}}
+  },
+  {
+    "test": "DELETE /enterprise/non-existent-id (delete, negative)",
+    "curl": "curl -X DELETE http://localhost:8383/enterprise/non-existent-id -H 'Authorization: Bearer <TOKEN>'",
+    "response": {"status":false,"message":"Enterprise not found"}
+  },
+  {
+    "test": "GET /enterprise/x-spark-test/stats (after deletion, negative)",
+    "curl": "curl -X GET http://localhost:8383/enterprise/x-spark-test/stats -H 'Authorization: Bearer <TOKEN>'",
+    "response": {"status":false,"message":"Enterprise not found"}
+  },
+  {
+    "test": "GET /enterprise/non-existent-id/stats (negative)",
+    "curl": "curl -X GET http://localhost:8383/enterprise/non-existent-id/stats -H 'Authorization: Bearer <TOKEN>'",
+    "response": {"status":false,"message":"Enterprise not found"}
+  }
+] 
