@@ -1387,6 +1387,295 @@ exports.deleteEmployee = async (req, res) => {
     }
 };
 
+/**
+ * Unassign an employee from a department (without setting isEmployee to false)
+ * This allows keeping the employee in the system for reassignment to another department
+ */
+exports.unassignEmployee = async (req, res) => {
+    try {
+        const { enterpriseId, departmentId, employeeId } = req.params;
+        const { confirmTeamRemoval = false } = req.body;
+
+        if (!enterpriseId || !departmentId || !employeeId) {
+            return sendError(res, 400, 'Enterprise ID, Department ID, and Employee ID are required');
+        }
+
+        // Check if department exists
+        const departmentRef = db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .doc(departmentId);
+            
+        const departmentDoc = await departmentRef.get();
+        
+        if (!departmentDoc.exists) {
+            return sendError(res, 404, 'Department not found');
+        }
+
+        // Check if employee exists
+        const employeeRef = departmentRef.collection('employees').doc(employeeId);
+        const employeeDoc = await employeeRef.get();
+        
+        if (!employeeDoc.exists) {
+            return sendError(res, 404, 'Employee not found');
+        }
+
+        const employeeData = employeeDoc.data();
+        
+        // Check if employee is part of any team
+        const isInTeam = employeeData.teamRef && employeeData.teamEmployeeRef;
+        
+        if (isInTeam && !confirmTeamRemoval) {
+            // Get team information for warning
+            let teamInfo = null;
+            try {
+                const teamDoc = await employeeData.teamRef.get();
+                if (teamDoc.exists) {
+                    teamInfo = {
+                        id: teamDoc.id,
+                        name: teamDoc.data().name
+                    };
+                }
+            } catch (error) {
+                console.warn('Error fetching team info:', error);
+            }
+
+            return res.status(409).json({
+                status: false,
+                message: 'Employee is part of a team and requires confirmation',
+                warning: {
+                    type: 'team_member',
+                    message: `Warning: This employee is a member of the team "${teamInfo?.name || 'Unknown Team'}". Unassigning them from the department will also remove them from this team.`,
+                    teamInfo: teamInfo,
+                    requiresConfirmation: true
+                },
+                employee: {
+                    id: employeeId,
+                    name: employeeData.name,
+                    surname: employeeData.surname,
+                    role: employeeData.role
+                }
+            });
+        }
+
+        // Run transaction to maintain data integrity
+        await db.runTransaction(async (transaction) => {
+            // Remove from team if assigned
+            if (employeeData.teamRef && employeeData.teamEmployeeRef) {
+                // Delete from team's employees collection
+                transaction.delete(employeeData.teamEmployeeRef);
+                
+                // Decrement team member count
+                transaction.update(employeeData.teamRef, {
+                    memberCount: admin.firestore.FieldValue.increment(-1),
+                    updatedAt: admin.firestore.Timestamp.now()
+                });
+            }
+
+            // Delete employee from department
+            transaction.delete(employeeRef);
+            
+            // Decrement department member count
+            transaction.update(departmentRef, {
+                memberCount: admin.firestore.FieldValue.increment(-1),
+                updatedAt: admin.firestore.Timestamp.now()
+            });
+            
+            // Update user document to remove department references but keep isEmployee true
+            const userRef = employeeData.userRef || employeeData.userId;
+            if (userRef) {
+                transaction.update(userRef, {
+                    employeeRef: admin.firestore.FieldValue.delete(),
+                    departmentRef: admin.firestore.FieldValue.delete(),
+                    teamRef: admin.firestore.FieldValue.delete(),
+                    teamEmployeeRef: admin.firestore.FieldValue.delete(),
+                    // Note: We do NOT set isEmployee to false - keeping them as an employee
+                    updatedAt: admin.firestore.Timestamp.now()
+                });
+            }
+        });
+
+        res.status(200).json({
+            status: true,
+            message: 'Employee unassigned successfully',
+            data: {
+                employeeId,
+                departmentId,
+                removedFromTeam: isInTeam,
+                employeeStillActive: true // Employee remains active in the system
+            }
+        });
+
+    } catch (error) {
+        console.error('Error unassigning employee:', error);
+        sendError(res, 500, 'Error unassigning employee', error);
+    }
+};
+
+/**
+ * Bulk unassign all employees from a department
+ * This is a wrapper function that efficiently removes all employees
+ */
+exports.unassignAllEmployees = async (req, res) => {
+    try {
+        const { enterpriseId, departmentId } = req.params;
+        const { confirmTeamRemovals = false } = req.body;
+
+        if (!enterpriseId || !departmentId) {
+            return sendError(res, 400, 'Enterprise ID and Department ID are required');
+        }
+
+        // Check if department exists
+        const departmentRef = db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .doc(departmentId);
+            
+        const departmentDoc = await departmentRef.get();
+        
+        if (!departmentDoc.exists) {
+            return sendError(res, 404, 'Department not found');
+        }
+
+        // Get all employees in the department
+        const employeesSnapshot = await departmentRef.collection('employees').get();
+        
+        if (employeesSnapshot.empty) {
+            return res.status(200).json({
+                status: true,
+                message: 'No employees found in department',
+                data: {
+                    employeesRemoved: 0,
+                    warnings: []
+                }
+            });
+        }
+
+        // Check for team members and gather warnings
+        const warnings = [];
+        const employeesToProcess = [];
+        
+        for (const employeeDoc of employeesSnapshot.docs) {
+            const employeeData = employeeDoc.data();
+            const isInTeam = employeeData.teamRef && employeeData.teamEmployeeRef;
+            
+            if (isInTeam) {
+                let teamInfo = null;
+                try {
+                    const teamDoc = await employeeData.teamRef.get();
+                    if (teamDoc.exists) {
+                        teamInfo = {
+                            id: teamDoc.id,
+                            name: teamDoc.data().name
+                        };
+                    }
+                } catch (error) {
+                    console.warn('Error fetching team info:', error);
+                }
+
+                warnings.push({
+                    employeeId: employeeDoc.id,
+                    employeeName: `${employeeData.name} ${employeeData.surname}`,
+                    teamInfo: teamInfo,
+                    message: `Employee "${employeeData.name} ${employeeData.surname}" is a member of team "${teamInfo?.name || 'Unknown Team'}"`
+                });
+            }
+            
+            employeesToProcess.push({
+                id: employeeDoc.id,
+                ref: employeeDoc.ref,
+                data: employeeData,
+                isInTeam: isInTeam
+            });
+        }
+
+        // If there are team members and confirmation not provided, return warnings
+        if (warnings.length > 0 && !confirmTeamRemovals) {
+            return res.status(409).json({
+                status: false,
+                message: 'Some employees are part of teams and require confirmation',
+                warning: {
+                    type: 'bulk_team_members',
+                    message: `Warning: ${warnings.length} employee(s) are members of teams. Unassigning them will also remove them from their teams.`,
+                    affectedEmployees: warnings,
+                    requiresConfirmation: true
+                },
+                totalEmployees: employeesToProcess.length,
+                employeesInTeams: warnings.length
+            });
+        }
+
+        // Process all employees in batches (Firestore transaction limit)
+        const batchSize = 400; // Conservative batch size for Firestore
+        const results = {
+            employeesRemoved: 0,
+            teamsAffected: new Set(),
+            errors: []
+        };
+
+        for (let i = 0; i < employeesToProcess.length; i += batchSize) {
+            const batch = employeesToProcess.slice(i, i + batchSize);
+            
+            try {
+                await db.runTransaction(async (transaction) => {
+                    for (const employee of batch) {
+                        // Remove from team if assigned
+                        if (employee.isInTeam) {
+                            transaction.delete(employee.data.teamEmployeeRef);
+                            transaction.update(employee.data.teamRef, {
+                                memberCount: admin.firestore.FieldValue.increment(-1),
+                                updatedAt: admin.firestore.Timestamp.now()
+                            });
+                            results.teamsAffected.add(employee.data.teamRef.id);
+                        }
+
+                        // Delete employee from department
+                        transaction.delete(employee.ref);
+                        
+                        // Update user document
+                        const userRef = employee.data.userRef || employee.data.userId;
+                        if (userRef) {
+                            transaction.update(userRef, {
+                                employeeRef: admin.firestore.FieldValue.delete(),
+                                departmentRef: admin.firestore.FieldValue.delete(),
+                                teamRef: admin.firestore.FieldValue.delete(),
+                                teamEmployeeRef: admin.firestore.FieldValue.delete(),
+                                updatedAt: admin.firestore.Timestamp.now()
+                            });
+                        }
+                        
+                        results.employeesRemoved++;
+                    }
+                    
+                    // Update department member count
+                    transaction.update(departmentRef, {
+                        memberCount: admin.firestore.FieldValue.increment(-batch.length),
+                        updatedAt: admin.firestore.Timestamp.now()
+                    });
+                });
+            } catch (error) {
+                console.error(`Error processing batch ${i / batchSize + 1}:`, error);
+                results.errors.push(`Batch ${i / batchSize + 1}: ${error.message}`);
+            }
+        }
+
+        res.status(200).json({
+            status: true,
+            message: 'Bulk unassignment completed',
+            data: {
+                employeesRemoved: results.employeesRemoved,
+                teamsAffected: Array.from(results.teamsAffected),
+                warnings: warnings,
+                errors: results.errors
+            }
+        });
+
+    } catch (error) {
+        console.error('Error in bulk unassignment:', error);
+        sendError(res, 500, 'Error in bulk unassignment', error);
+    }
+};
+
 // Get all cards for an enterprise
 exports.getAllEnterpriseCards = async (req, res) => {
     try {

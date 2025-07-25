@@ -576,4 +576,189 @@ exports.getTeamMembers = async (req, res) => {
     }
 };
 
+/**
+ * Add an existing department employee to a team
+ */
+exports.addEmployeeToTeam = async (req, res) => {
+    try {
+        const { enterpriseId, departmentId, teamId } = req.params;
+        const { employeeId } = req.body;
+        
+        if (!enterpriseId || !departmentId || !teamId || !employeeId) {
+            return sendError(res, 400, 'Enterprise ID, Department ID, Team ID, and Employee ID are required');
+        }
+
+        // Check if department exists
+        const departmentRef = db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .doc(departmentId);
+            
+        const departmentDoc = await departmentRef.get();
+        
+        if (!departmentDoc.exists) {
+            return sendError(res, 404, 'Department not found');
+        }
+
+        // Check if team exists
+        const teamRef = departmentRef.collection('teams').doc(teamId);
+        const teamDoc = await teamRef.get();
+        
+        if (!teamDoc.exists) {
+            return sendError(res, 404, 'Team not found');
+        }
+
+        // Check if employee exists in the department
+        const employeeRef = departmentRef.collection('employees').doc(employeeId);
+        const employeeDoc = await employeeRef.get();
+        
+        if (!employeeDoc.exists) {
+            return sendError(res, 404, 'Employee not found in this department');
+        }
+
+        const employeeData = employeeDoc.data();
+
+        // Check if employee is already in this team
+        const existingTeamEmployee = await teamRef.collection('employees')
+            .where('employeeRef', '==', employeeRef)
+            .get();
+            
+        if (!existingTeamEmployee.empty) {
+            return sendError(res, 409, 'Employee is already a member of this team');
+        }
+
+        // Check if employee is already in another team
+        if (employeeData.teamRef && employeeData.teamEmployeeRef) {
+            const currentTeamDoc = await employeeData.teamRef.get();
+            const currentTeamName = currentTeamDoc.exists ? currentTeamDoc.data().name : 'Unknown Team';
+            return sendError(res, 409, `Employee is already a member of team "${currentTeamName}". Remove them from that team first.`);
+        }
+
+        // Add employee to team
+        const teamEmployeeData = {
+            employeeRef: employeeRef,
+            userId: employeeData.userId,
+            name: employeeData.name || '',
+            surname: employeeData.surname || '',
+            role: employeeData.role,
+            position: employeeData.position || '',
+            addedAt: admin.firestore.Timestamp.now()
+        };
+        
+        const teamEmployeeRef = await teamRef.collection('employees').add(teamEmployeeData);
+        
+        // Update employee record with team references
+        await employeeRef.update({
+            teamRef: teamRef,
+            teamEmployeeRef: teamEmployeeRef,
+            updatedAt: admin.firestore.Timestamp.now()
+        });
+        
+        // Update team member count
+        await teamRef.update({
+            memberCount: admin.firestore.FieldValue.increment(1),
+            updatedAt: admin.firestore.Timestamp.now()
+        });
+
+        res.status(200).send({
+            success: true,
+            message: 'Employee added to team successfully',
+            data: {
+                teamId: teamId,
+                employeeId: employeeId,
+                teamEmployeeId: teamEmployeeRef.id,
+                employeeName: `${employeeData.name} ${employeeData.surname}`,
+                teamName: teamDoc.data().name
+            }
+        });
+
+    } catch (error) {
+        console.error('Error adding employee to team:', error);
+        sendError(res, 500, 'Error adding employee to team', error);
+    }
+};
+
+/**
+ * Remove an employee from a team (but keep them in the department)
+ */
+exports.removeEmployeeFromTeam = async (req, res) => {
+    try {
+        const { enterpriseId, departmentId, teamId, employeeId } = req.params;
+        
+        if (!enterpriseId || !departmentId || !teamId || !employeeId) {
+            return sendError(res, 400, 'Enterprise ID, Department ID, Team ID, and Employee ID are required');
+        }
+
+        // Check if department exists
+        const departmentRef = db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .doc(departmentId);
+            
+        const departmentDoc = await departmentRef.get();
+        
+        if (!departmentDoc.exists) {
+            return sendError(res, 404, 'Department not found');
+        }
+
+        // Check if team exists
+        const teamRef = departmentRef.collection('teams').doc(teamId);
+        const teamDoc = await teamRef.get();
+        
+        if (!teamDoc.exists) {
+            return sendError(res, 404, 'Team not found');
+        }
+
+        // Check if employee exists in the department
+        const employeeRef = departmentRef.collection('employees').doc(employeeId);
+        const employeeDoc = await employeeRef.get();
+        
+        if (!employeeDoc.exists) {
+            return sendError(res, 404, 'Employee not found in this department');
+        }
+
+        const employeeData = employeeDoc.data();
+
+        // Check if employee is in this team
+        if (!employeeData.teamRef || !employeeData.teamEmployeeRef || employeeData.teamRef.id !== teamId) {
+            return sendError(res, 404, 'Employee is not a member of this team');
+        }
+
+        // Remove employee from team
+        await db.runTransaction(async (transaction) => {
+            // Delete from team's employees collection
+            transaction.delete(employeeData.teamEmployeeRef);
+            
+            // Update employee record to remove team references
+            transaction.update(employeeRef, {
+                teamRef: admin.firestore.FieldValue.delete(),
+                teamEmployeeRef: admin.firestore.FieldValue.delete(),
+                updatedAt: admin.firestore.Timestamp.now()
+            });
+            
+            // Decrement team member count
+            transaction.update(teamRef, {
+                memberCount: admin.firestore.FieldValue.increment(-1),
+                updatedAt: admin.firestore.Timestamp.now()
+            });
+        });
+
+        res.status(200).send({
+            success: true,
+            message: 'Employee removed from team successfully',
+            data: {
+                teamId: teamId,
+                employeeId: employeeId,
+                employeeName: `${employeeData.name} ${employeeData.surname}`,
+                teamName: teamDoc.data().name,
+                stillInDepartment: true
+            }
+        });
+
+    } catch (error) {
+        console.error('Error removing employee from team:', error);
+        sendError(res, 500, 'Error removing employee from team', error);
+    }
+};
+
 module.exports = exports;

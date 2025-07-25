@@ -35,6 +35,15 @@ router.post('/enterprise/:enterpriseId/departments/:departmentId/employees', dep
 router.get('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId', departmentsController.getEmployeeById);
 router.put('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId', departmentsController.updateEmployee);
 router.delete('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId', departmentsController.deleteEmployee);
+
+// New unassignment routes
+router.post('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId/unassign', departmentsController.unassignEmployee);
+router.post('/enterprise/:enterpriseId/departments/:departmentId/employees/unassign-all', departmentsController.unassignAllEmployees);
+
+// Team member management routes
+router.post('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId/employees', teamsController.addEmployeeToTeam);
+router.delete('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId/employees/:employeeId', teamsController.removeEmployeeFromTeam);
+
 router.get('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId/card', departmentsController.getEmployeeCard);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/query-employee', departmentsController.queryEmployee);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/managers', departmentsController.getDepartmentManagers);
