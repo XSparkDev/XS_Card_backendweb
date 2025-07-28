@@ -24,6 +24,13 @@ router.patch('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId'
 router.delete('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId', teamsController.deleteTeam);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId/members', teamsController.getTeamMembers);
 
+// Bulk team member management routes
+router.post('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId/members/bulk-add', teamsController.bulkAddEmployeesToTeam);
+router.post('/enterprise/:enterpriseId/departments/:departmentId/teams/:teamId/members/bulk-remove', teamsController.bulkRemoveEmployeesFromTeam);
+
+// Get unassigned employees
+router.get('/enterprise/:enterpriseId/departments/:departmentId/employees/unassigned', teamsController.getEmployeesNotInTeam);
+
 // Export routes
 router.get('/enterprise/:enterpriseId/departments/:departmentId/exports/teams', exportController.exportTeams);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/exports/teams/:teamId', exportController.exportIndividualTeam);

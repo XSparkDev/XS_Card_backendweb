@@ -663,6 +663,7 @@ const verifySubscriptionStatus = async (subscriptionCode) => {
     });
 };
 
+
 // Check for expired trials every 24 hours
 setInterval(checkExpiredTrials, 24 * 60 * 60 * 1000);
 

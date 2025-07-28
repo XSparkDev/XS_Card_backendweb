@@ -975,78 +975,156 @@ exports.addEmployee = async (req, res) => {
                 actualUserId = userDoc.id;
                 console.log(`Found existing user with email ${email}, ID: ${actualUserId}`);
             } else {
-                // Create a new user
+                // ========================================
+                // FUTURE ENHANCEMENTS - EMPLOYEE ONBOARDING FLOW
+                // ========================================
+                // TODO: Implement department-specific card templates
+                // TODO: Apply enterprise branding (logo, colors, fonts) to employee cards
+                // TODO: Add department template selection (Sales, Marketing, Engineering, etc.)
+                // TODO: Implement role-based card customization (Manager, Director, Employee)
+                // TODO: Add enterprise plan features (unlimited contacts, advanced analytics)
+                // TODO: Implement automatic card sharing within department/team
+                // TODO: Add enterprise SSO integration for seamless login
+                // TODO: Implement department-specific contact limits and features
+                // TODO: Add enterprise analytics dashboard access
+                // TODO: Implement automatic card updates when employee info changes
+                // ========================================
+                
+                // Create a new user (replicating addUser flow)
                 if (!email || !firstName || !lastName) {
                     return sendError(res, 400, 'Email, firstName, and lastName are required to create a new user');
                 }
                 
+                // Generate a temporary password for Firebase Auth
+                const tempPassword = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                
                 // Generate verification token
                 const verificationToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
                 
-                // Generate password setup token if needed
+                // Generate password setup token
                 const passwordSetupToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
                 
-                // Create a new user document
-                const newUserData = {
-                    email,
-                    name: firstName,
-                    surname: lastName,
-                    phone: phone || '',
-                    title: title || '',
-                    profileImage: profileImage || '',
-                    employeeId: employeeId || '',
-                    colorScheme: colorScheme || '#000000',
-                    createdAt: admin.firestore.Timestamp.now(),
-                    updatedAt: admin.firestore.Timestamp.now(),
-                    isEmployee: true,
-                    isEmailVerified: false,
-                    verificationToken: verificationToken,
-                    passwordSetupToken: passwordSetupToken,
-                    passwordSetupExpires: admin.firestore.Timestamp.fromDate(
-                        new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now
-                    )
-                };
-                
-                userRef = db.collection('users').doc();
-                actualUserId = userRef.id;
-                
-                await userRef.set(newUserData);
-                userData = newUserData;
-                console.log(`Created new user with email ${email}, ID: ${actualUserId}`);
-                
-                // Send verification email
                 try {
-                    const verificationLink = `${process.env.APP_URL || 'http://localhost:8383'}/verify-email?token=${verificationToken}&uid=${actualUserId}`;
-                    
-                    // Prepare email content with password setup info
-                    let emailHtml = `
-                        <h1>Welcome to XS Card!</h1>
-                        <p>Hello ${firstName},</p>
-                        <p>You've been added as an employee by your administrator.</p>
-                        <p>Please click the link below to verify your email address:</p>
-                        <a href="${verificationLink}">Verify Email</a>
-                        <p>This link will expire in 24 hours.</p>`;
-                    
-                    // Add password setup instructions
-                    const setupLink = `${process.env.APP_URL || 'http://localhost:8383'}/set-password?token=${passwordSetupToken}&uid=${actualUserId}`;
-                    emailHtml += `
-                        <p><strong>Set Your Password</strong></p>
-                        <p>You'll need to set up your password to access your account:</p>
-                        <a href="${setupLink}">Set Your Password</a>
-                        <p>This link will expire in 24 hours.</p>`;
-                    
-                    emailHtml += `<p>If you didn't expect this email, please ignore it.</p>`;
-                    
-                    await sendMailWithStatus({
-                        to: email,
-                        subject: 'Welcome to XS Card - Verify your email address',
-                        html: emailHtml
+                    // Create user in Firebase Auth (replicating addUser)
+                    const userRecord = await admin.auth().createUser({
+                        email: email,
+                        password: tempPassword,
+                        emailVerified: false
                     });
                     
-                    console.log('Verification email sent to:', email);
-                } catch (emailError) {
-                    console.error('Failed to send verification email:', emailError);
-                    // Continue with user creation even if email fails
+                    actualUserId = userRecord.uid;
+                    
+                    // Get enterprise data for card creation
+                    const enterpriseData = enterpriseDoc.data();
+                    
+                    // Create user data for Firestore (replicating addUser structure)
+                    const newUserData = {
+                        uid: userRecord.uid,
+                        email,
+                        name: firstName,
+                        surname: lastName,
+                        phone: phone || '',
+                        title: title || '',
+                        profileImage: profileImage || '',
+                        employeeId: employeeId || '',
+                        colorScheme: colorScheme || '#1B2B5B', // Use same default as addUser
+                        plan: 'enterprise', // Default enterprise plan for all employees
+                        createdAt: admin.firestore.Timestamp.now(),
+                        updatedAt: admin.firestore.Timestamp.now(),
+                        isEmployee: true,
+                        isEmailVerified: false,
+                        verificationToken: verificationToken,
+                        passwordSetupToken: passwordSetupToken,
+                        passwordSetupExpires: admin.firestore.Timestamp.fromDate(
+                            new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now
+                        )
+                    };
+                    
+                    // ========================================
+                    // CARD CREATION - FUTURE TEMPLATE SYSTEM
+                    // ========================================
+                    // TODO: Replace with department-specific card templates
+                    // TODO: Apply enterprise color scheme and branding
+                    // TODO: Add role-based card layouts (Manager vs Employee)
+                    // TODO: Implement department template inheritance
+                    // TODO: Add enterprise logo and branding elements
+                    // TODO: Implement card versioning for template updates
+                    // TODO: Add department-specific contact fields
+                    // TODO: Implement card sharing permissions within enterprise
+                    // ========================================
+                    
+                    // Create card data (replicating addUser card creation)
+                    // FUTURE: This will use department/enterprise templates
+                    const cardData = {
+                        cards: [{
+                            name: firstName,
+                            surname: lastName,
+                            email: email,
+                            phone: phone || '',
+                            occupation: position || title || '',
+                            company: enterpriseData.name || '',
+                            profileImage: profileImage || null,
+                            companyLogo: enterpriseData.logoUrl || null,
+                            socials: {},
+                            colorScheme: colorScheme || '#1B2B5B', // Use same default as addUser
+                            // FUTURE: Add department template reference
+                            // departmentTemplate: departmentId,
+                            // FUTURE: Add enterprise template reference  
+                            // enterpriseTemplate: enterpriseId,
+                            // FUTURE: Add role-based customization
+                            // roleCustomization: role,
+                            createdAt: admin.firestore.Timestamp.now()
+                        }]
+                    };
+                    
+                    // Store user data in Firestore (replicating addUser)
+                    await db.collection('users').doc(userRecord.uid).set(newUserData);
+                    
+                    // Store card data in Firestore (replicating addUser)
+                    await db.collection('cards').doc(userRecord.uid).set(cardData);
+                    
+                    userRef = db.collection('users').doc(userRecord.uid);
+                    userData = newUserData;
+                    console.log(`Created new user with Firebase Auth UID: ${actualUserId}`);
+                    
+                    // Send verification email (replicating addUser email structure)
+                    try {
+                        const verificationLink = `${process.env.APP_URL || 'http://localhost:8383'}/verify-email?token=${verificationToken}&uid=${actualUserId}`;
+                        
+                        // Prepare email content with password setup info
+                        let emailHtml = `
+                            <h1>Welcome to XS Card!</h1>
+                            <p>Hello ${firstName},</p>
+                            <p>You've been added as an employee by your administrator.</p>
+                            <p>Please click the link below to verify your email address:</p>
+                            <a href="${verificationLink}">Verify Email</a>
+                            <p>This link will expire in 24 hours.</p>`;
+                        
+                        // Add password setup instructions
+                        const setupLink = `${process.env.APP_URL || 'http://localhost:8383'}/set-password?token=${passwordSetupToken}&uid=${actualUserId}`;
+                        emailHtml += `
+                            <p><strong>Set Your Password</strong></p>
+                            <p>You'll need to set up your password to access your account:</p>
+                            <a href="${setupLink}">Set Your Password</a>
+                            <p>This link will expire in 24 hours.</p>`;
+                        
+                        emailHtml += `<p>If you didn't expect this email, please ignore it.</p>`;
+                        
+                        await sendMailWithStatus({
+                            to: email,
+                            subject: 'Welcome to XS Card - Verify your email address',
+                            html: emailHtml
+                        });
+                        
+                        console.log('Verification email sent to:', email);
+                    } catch (emailError) {
+                        console.error('Failed to send verification email:', emailError);
+                        // Continue with user creation even if email fails
+                    }
+                    
+                } catch (authError) {
+                    console.error('Error creating Firebase Auth user:', authError);
+                    return sendError(res, 500, 'Failed to create user in authentication system', authError);
                 }
             }
         } else {
@@ -1063,6 +1141,19 @@ exports.addEmployee = async (req, res) => {
             return sendError(res, 409, 'User is already an employee in this department');
         }
         
+        // ========================================
+        // EMPLOYEE RECORD CREATION - FUTURE ENHANCEMENTS
+        // ========================================
+        // TODO: Add department template reference for card customization
+        // TODO: Implement role-based permissions and access levels
+        // TODO: Add enterprise plan features and limits
+        // TODO: Implement department-specific employee fields
+        // TODO: Add team assignment with automatic card sharing
+        // TODO: Implement employee onboarding workflow
+        // TODO: Add enterprise analytics tracking
+        // TODO: Implement automatic card updates on employee changes
+        // ========================================
+        
         // Create employee record with role information
         const employeeData = {
             userId: db.doc(`users/${actualUserId}`),
@@ -1076,6 +1167,15 @@ exports.addEmployee = async (req, res) => {
             employeeId: employeeId || '',
             teamId: teamId,
             isActive: isActive,
+            cardsRef: db.doc(`cards/${actualUserId}`), // Reference to the created card
+            // FUTURE: Add department template reference
+            // departmentTemplate: departmentId,
+            // FUTURE: Add enterprise template reference
+            // enterpriseTemplate: enterpriseId,
+            // FUTURE: Add role-based permissions
+            // rolePermissions: getRolePermissions(role),
+            // FUTURE: Add enterprise plan features
+            // enterpriseFeatures: getEnterpriseFeatures(enterpriseId),
             createdAt: admin.firestore.Timestamp.now(),
             updatedAt: admin.firestore.Timestamp.now()
         };
@@ -1207,6 +1307,38 @@ exports.addEmployee = async (req, res) => {
         } catch (cacheError) {
             console.error('Cache invalidation error after employee addition:', cacheError);
         }
+        
+        // ========================================
+        // FUTURE ENHANCEMENTS - ENTERPRISE EMPLOYEE SYSTEM
+        // ========================================
+        // 
+        // CARD TEMPLATE SYSTEM:
+        // - Department-specific card templates (Sales, Marketing, Engineering)
+        // - Enterprise branding integration (logos, colors, fonts)
+        // - Role-based card customization (Manager vs Employee layouts)
+        // - Template inheritance (Enterprise → Department → Role)
+        // - Card versioning for template updates
+        //
+        // ENTERPRISE FEATURES:
+        // - Unlimited contacts for enterprise plan users
+        // - Advanced analytics and reporting
+        // - Department-specific contact limits
+        // - Enterprise SSO integration
+        // - Automatic card sharing within departments/teams
+        //
+        // ONBOARDING WORKFLOW:
+        // - Department-specific onboarding steps
+        // - Role-based access provisioning
+        // - Automatic card updates on employee changes
+        // - Enterprise analytics dashboard access
+        // - Team assignment with card sharing
+        //
+        // PERMISSIONS & ACCESS:
+        // - Role-based permissions (Manager, Director, Employee)
+        // - Department-specific access controls
+        // - Enterprise plan feature flags
+        // - Card sharing permissions within enterprise
+        // ========================================
         
     } catch (error) {
         sendError(res, 500, 'Error adding employee', error);

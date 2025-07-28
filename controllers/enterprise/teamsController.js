@@ -761,4 +761,352 @@ exports.removeEmployeeFromTeam = async (req, res) => {
     }
 };
 
+/**
+ * Bulk add multiple employees to a team
+ */
+exports.bulkAddEmployeesToTeam = async (req, res) => {
+    try {
+        const { enterpriseId, departmentId, teamId } = req.params;
+        const { employeeIds } = req.body;
+        
+        if (!enterpriseId || !departmentId || !teamId) {
+            return sendError(res, 400, 'Enterprise ID, Department ID, and Team ID are required');
+        }
+        
+        if (!employeeIds || !Array.isArray(employeeIds) || employeeIds.length === 0) {
+            return sendError(res, 400, 'employeeIds array is required and must not be empty');
+        }
+
+        // Check if department exists
+        const departmentRef = db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .doc(departmentId);
+            
+        const departmentDoc = await departmentRef.get();
+        
+        if (!departmentDoc.exists) {
+            return sendError(res, 404, 'Department not found');
+        }
+
+        // Check if team exists
+        const teamRef = departmentRef.collection('teams').doc(teamId);
+        const teamDoc = await teamRef.get();
+        
+        if (!teamDoc.exists) {
+            return sendError(res, 404, 'Team not found');
+        }
+
+        const results = {
+            successful: [],
+            failed: [],
+            alreadyInTeam: [],
+            notFound: []
+        };
+
+        // Process each employee
+        for (const employeeId of employeeIds) {
+            try {
+                // Check if employee exists in the department
+                const employeeRef = departmentRef.collection('employees').doc(employeeId);
+                const employeeDoc = await employeeRef.get();
+                
+                if (!employeeDoc.exists) {
+                    results.notFound.push({ employeeId, reason: 'Employee not found in department' });
+                    continue;
+                }
+
+                const employeeData = employeeDoc.data();
+
+                // Check if employee is already in this team
+                const existingTeamEmployee = await teamRef.collection('employees')
+                    .where('employeeRef', '==', employeeRef)
+                    .get();
+                    
+                if (!existingTeamEmployee.empty) {
+                    results.alreadyInTeam.push({ 
+                        employeeId, 
+                        name: `${employeeData.name} ${employeeData.surname}`,
+                        reason: 'Already a member of this team' 
+                    });
+                    continue;
+                }
+
+                // Check if employee is already in another team
+                if (employeeData.teamRef && employeeData.teamEmployeeRef) {
+                    const currentTeamDoc = await employeeData.teamRef.get();
+                    const currentTeamName = currentTeamDoc.exists ? currentTeamDoc.data().name : 'Unknown Team';
+                    results.failed.push({ 
+                        employeeId, 
+                        name: `${employeeData.name} ${employeeData.surname}`,
+                        reason: `Already in team "${currentTeamName}"` 
+                    });
+                    continue;
+                }
+
+                // Add employee to team
+                const teamEmployeeData = {
+                    employeeRef: employeeRef,
+                    userId: employeeData.userId,
+                    name: employeeData.name || '',
+                    surname: employeeData.surname || '',
+                    role: employeeData.role,
+                    position: employeeData.position || '',
+                    addedAt: admin.firestore.Timestamp.now()
+                };
+                
+                const teamEmployeeRef = await teamRef.collection('employees').add(teamEmployeeData);
+                
+                // Update employee record with team references
+                await employeeRef.update({
+                    teamRef: teamRef,
+                    teamEmployeeRef: teamEmployeeRef,
+                    updatedAt: admin.firestore.Timestamp.now()
+                });
+
+                results.successful.push({
+                    employeeId,
+                    name: `${employeeData.name} ${employeeData.surname}`,
+                    teamEmployeeId: teamEmployeeRef.id
+                });
+
+            } catch (error) {
+                results.failed.push({ 
+                    employeeId, 
+                    reason: error.message 
+                });
+            }
+        }
+
+        // Update team member count
+        if (results.successful.length > 0) {
+            await teamRef.update({
+                memberCount: admin.firestore.FieldValue.increment(results.successful.length),
+                updatedAt: admin.firestore.Timestamp.now()
+            });
+        }
+
+        res.status(200).send({
+            success: true,
+            message: `Bulk add completed. ${results.successful.length} employees added successfully.`,
+            data: {
+                teamId,
+                teamName: teamDoc.data().name,
+                summary: {
+                    total: employeeIds.length,
+                    successful: results.successful.length,
+                    failed: results.failed.length,
+                    alreadyInTeam: results.alreadyInTeam.length,
+                    notFound: results.notFound.length
+                },
+                results
+            }
+        });
+
+    } catch (error) {
+        console.error('Error bulk adding employees to team:', error);
+        sendError(res, 500, 'Error bulk adding employees to team', error);
+    }
+};
+
+/**
+ * Bulk remove multiple employees from a team
+ */
+exports.bulkRemoveEmployeesFromTeam = async (req, res) => {
+    try {
+        const { enterpriseId, departmentId, teamId } = req.params;
+        const { employeeIds } = req.body;
+        
+        if (!enterpriseId || !departmentId || !teamId) {
+            return sendError(res, 400, 'Enterprise ID, Department ID, and Team ID are required');
+        }
+        
+        if (!employeeIds || !Array.isArray(employeeIds) || employeeIds.length === 0) {
+            return sendError(res, 400, 'employeeIds array is required and must not be empty');
+        }
+
+        // Check if department exists
+        const departmentRef = db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .doc(departmentId);
+            
+        const departmentDoc = await departmentRef.get();
+        
+        if (!departmentDoc.exists) {
+            return sendError(res, 404, 'Department not found');
+        }
+
+        // Check if team exists
+        const teamRef = departmentRef.collection('teams').doc(teamId);
+        const teamDoc = await teamRef.get();
+        
+        if (!teamDoc.exists) {
+            return sendError(res, 404, 'Team not found');
+        }
+
+        const results = {
+            successful: [],
+            failed: [],
+            notInTeam: [],
+            notFound: []
+        };
+
+        // Process each employee
+        for (const employeeId of employeeIds) {
+            try {
+                // Check if employee exists in the department
+                const employeeRef = departmentRef.collection('employees').doc(employeeId);
+                const employeeDoc = await employeeRef.get();
+                
+                if (!employeeDoc.exists) {
+                    results.notFound.push({ employeeId, reason: 'Employee not found in department' });
+                    continue;
+                }
+
+                const employeeData = employeeDoc.data();
+
+                // Check if employee is in this team
+                if (!employeeData.teamRef || !employeeData.teamEmployeeRef || employeeData.teamRef.id !== teamId) {
+                    results.notInTeam.push({ 
+                        employeeId, 
+                        name: `${employeeData.name} ${employeeData.surname}`,
+                        reason: 'Not a member of this team' 
+                    });
+                    continue;
+                }
+
+                // Remove employee from team using transaction
+                await db.runTransaction(async (transaction) => {
+                    // Delete from team's employees collection
+                    transaction.delete(employeeData.teamEmployeeRef);
+                    
+                    // Update employee record to remove team references
+                    transaction.update(employeeRef, {
+                        teamRef: admin.firestore.FieldValue.delete(),
+                        teamEmployeeRef: admin.firestore.FieldValue.delete(),
+                        updatedAt: admin.firestore.Timestamp.now()
+                    });
+                });
+
+                results.successful.push({
+                    employeeId,
+                    name: `${employeeData.name} ${employeeData.surname}`
+                });
+
+            } catch (error) {
+                results.failed.push({ 
+                    employeeId, 
+                    reason: error.message 
+                });
+            }
+        }
+
+        // Update team member count
+        if (results.successful.length > 0) {
+            await teamRef.update({
+                memberCount: admin.firestore.FieldValue.increment(-results.successful.length),
+                updatedAt: admin.firestore.Timestamp.now()
+            });
+        }
+
+        res.status(200).send({
+            success: true,
+            message: `Bulk remove completed. ${results.successful.length} employees removed successfully.`,
+            data: {
+                teamId,
+                teamName: teamDoc.data().name,
+                summary: {
+                    total: employeeIds.length,
+                    successful: results.successful.length,
+                    failed: results.failed.length,
+                    notInTeam: results.notInTeam.length,
+                    notFound: results.notFound.length
+                },
+                results
+            }
+        });
+
+    } catch (error) {
+        console.error('Error bulk removing employees from team:', error);
+        sendError(res, 500, 'Error bulk removing employees from team', error);
+    }
+};
+
+/**
+ * Get employees in department who are not assigned to any team
+ */
+exports.getEmployeesNotInTeam = async (req, res) => {
+    try {
+        const { enterpriseId, departmentId } = req.params;
+        
+        if (!enterpriseId || !departmentId) {
+            return sendError(res, 400, 'Enterprise ID and Department ID are required');
+        }
+
+        // Check if department exists
+        const departmentRef = db.collection('enterprise')
+            .doc(enterpriseId)
+            .collection('departments')
+            .doc(departmentId);
+            
+        const departmentDoc = await departmentRef.get();
+        
+        if (!departmentDoc.exists) {
+            return sendError(res, 404, 'Department not found');
+        }
+
+        // Get all employees in department who don't have a team reference
+        const employeesSnapshot = await departmentRef
+            .collection('employees')
+            .where('teamRef', '==', null)
+            .get();
+
+        // Also get employees where teamRef field doesn't exist
+        const employeesWithoutTeamFieldSnapshot = await departmentRef
+            .collection('employees')
+            .get();
+
+        const unassignedEmployees = [];
+        
+        // Process employees without teamRef field
+        employeesWithoutTeamFieldSnapshot.forEach(doc => {
+            const employee = doc.data();
+            if (!employee.teamRef) {
+                const formattedEmployee = {
+                    id: doc.id,
+                    userId: employee.userId,
+                    name: employee.name || '',
+                    surname: employee.surname || '',
+                    email: employee.email || '',
+                    phone: employee.phone || '',
+                    role: employee.role || '',
+                    position: employee.position || '',
+                    profileImage: employee.profileImage || '',
+                    employeeId: employee.employeeId || '',
+                    isActive: employee.isActive !== false,
+                    createdAt: employee.createdAt ? employee.createdAt.toDate().toISOString() : null,
+                    updatedAt: employee.updatedAt ? employee.updatedAt.toDate().toISOString() : null
+                };
+                
+                // Avoid duplicates
+                if (!unassignedEmployees.find(emp => emp.id === doc.id)) {
+                    unassignedEmployees.push(formattedEmployee);
+                }
+            }
+        });
+
+        res.status(200).send({
+            success: true,
+            employees: unassignedEmployees,
+            count: unassignedEmployees.length,
+            message: unassignedEmployees.length === 0 ? 'All employees are assigned to teams' : `Found ${unassignedEmployees.length} unassigned employees`
+        });
+
+    } catch (error) {
+        console.error('Error getting unassigned employees:', error);
+        sendError(res, 500, 'Error getting employees not in team', error);
+    }
+};
+
 module.exports = exports;
