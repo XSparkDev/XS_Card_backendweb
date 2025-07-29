@@ -208,6 +208,46 @@ app.post('/track-scan', async (req, res) => {
       }
     });
 
+    // Update scan count on the card document
+    try {
+      const cardRef = db.collection('cards').doc(userId);
+      const cardDoc = await cardRef.get();
+      
+      if (cardDoc.exists) {
+        const cardData = cardDoc.data();
+        const cards = cardData.cards || [];
+        const targetCardIndex = cardIndex || 0;
+        
+        if (cards[targetCardIndex]) {
+          // Initialize scan count if it doesn't exist
+          if (!cards[targetCardIndex].scanCount) {
+            cards[targetCardIndex].scanCount = 0;
+          }
+          
+          // Increment scan count
+          cards[targetCardIndex].scanCount += 1;
+          
+          // Update last scanned timestamp
+          cards[targetCardIndex].lastScanned = admin.firestore.Timestamp.now();
+          
+          // Update the card document
+          await cardRef.update({
+            cards: cards,
+            updatedAt: admin.firestore.Timestamp.now()
+          });
+          
+          console.log(`✅ Card scan count updated: ${cards[targetCardIndex].scanCount} scans for user ${userId}, card ${targetCardIndex}`);
+        } else {
+          console.warn(`⚠️ Card index ${targetCardIndex} not found for user ${userId}`);
+        }
+      } else {
+        console.warn(`⚠️ Card document not found for user ${userId}`);
+      }
+    } catch (cardUpdateError) {
+      console.error('❌ Error updating card scan count:', cardUpdateError);
+      // Don't fail the scan tracking if card update fails
+    }
+
     console.log(`✅ Scan tracked successfully: ${scanType} scan for user ${userId}, card ${cardIndex || 0}`);
 
     res.status(200).json({

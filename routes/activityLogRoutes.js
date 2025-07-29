@@ -35,8 +35,7 @@ router.get('/logs', activityLogController.getAll);
 router.get('/logs/analytics/scan', activityLogController.getScanAnalytics);
 router.get('/logs/analytics/scan/:enterpriseId', activityLogController.getScanAnalytics);
 
-// Comprehensive enterprise scan analytics
-router.get('/logs/analytics/enterprise/:enterpriseId/comprehensive', activityLogController.getEnterpriseScanAnalytics);
-router.get('/logs/analytics/enterprise/:enterpriseId/cards', activityLogController.getEnterpriseCardsWithScans);
+// Enterprise card scans route
+router.get('/logs/analytics/cards/:enterpriseId', activityLogController.getEnterpriseCardScans);
 
 module.exports = router;
