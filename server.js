@@ -10,6 +10,7 @@ const cors = require('cors');
 const { db, admin } = require('./firebase.js');
 const { sendMailWithStatus, sendNotificationEmail } = require('./public/Utils/emailService');
 const { invalidateEnterpriseCache } = require('./controllers/enterprise/contactAggregationController');
+const { logActivity, ACTIONS, RESOURCES } = require('./utils/logger');
 const app = express();
 const port = 8383;
 
@@ -161,6 +162,77 @@ app.post('/api/set-password', async (req, res) => {
   }
 });
 
+// Add a diagnostic endpoint to check if the server is working
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Track scan endpoint for analytics (public route) - must be before protected routes
+app.post('/track-scan', async (req, res) => {
+  try {
+    const { userId, cardIndex, scanType, sessionId, timestamp } = req.body;
+    
+    console.log('📊 Scan tracking request received:', {
+      userId,
+      cardIndex,
+      scanType,
+      sessionId,
+      timestamp: new Date(timestamp).toISOString()
+    });
+
+    // Validate required fields
+    if (!userId || scanType === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: userId and scanType'
+      });
+    }
+
+    // Log the scan activity
+    await logActivity({
+      action: 'SCAN',
+      resource: 'CARD',
+      userId: userId,
+      resourceId: userId,
+      details: {
+        scanType: scanType,
+        cardIndex: cardIndex || 0,
+        sessionId: sessionId,
+        timestamp: new Date(timestamp).toISOString(),
+        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip || req.connection.remoteAddress
+      }
+    });
+
+    console.log(`✅ Scan tracked successfully: ${scanType} scan for user ${userId}, card ${cardIndex || 0}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Scan tracked successfully',
+      data: {
+        userId,
+        cardIndex: cardIndex || 0,
+        scanType,
+        sessionId,
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error tracking scan:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to track scan',
+      error: error.message
+    });
+  }
+});
+
+// Serve the saveContact page
 app.get('/saveContact', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'saveContact.html'));
 });
@@ -418,15 +490,6 @@ app.get('/public/cards/:id', async (req, res) => {
             error: error.message 
         });
     }
-});
-
-// Add a diagnostic endpoint to check if the server is working
-app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
-  });
 });
 
 // Protected routes - after public routes
