@@ -725,3 +725,421 @@ exports.getErrors = async (req, res) => {
     sendError(res, 500, 'Failed to retrieve error logs', error);
   }
 };
+
+/**
+ * Get comprehensive enterprise scan analytics (all cards, all users)
+ */
+exports.getEnterpriseScanAnalytics = async (req, res) => {
+  try {
+    logRequestInfo(req);
+    const { enterpriseId } = req.params;
+    const { startTime, endTime, scanType } = req.query;
+    
+    console.log('Getting comprehensive scan analytics for enterprise:', enterpriseId);
+    
+    if (!enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enterprise ID is required'
+      });
+    }
+    
+    // Get all enterprise users
+    const enterpriseUsersSnapshot = await db.collection('users')
+      .where('enterpriseRef', '==', db.doc(`enterprise/${enterpriseId}`))
+      .get();
+    
+    const enterpriseUserIds = enterpriseUsersSnapshot.docs.map(doc => doc.id);
+    console.log(`Found ${enterpriseUserIds.length} users in enterprise ${enterpriseId}`);
+    
+    // Get all scan activities for enterprise users
+    let query = db.collection('activityLogs')
+      .where('action', '==', 'scan')
+      .where('resource', '==', 'CARD');
+    
+    // Add time filters if provided
+    if (startTime) {
+      query = query.where('timestamp', '>=', admin.firestore.Timestamp.fromDate(new Date(startTime)));
+    }
+    if (endTime) {
+      query = query.where('timestamp', '<=', admin.firestore.Timestamp.fromDate(new Date(endTime)));
+    }
+    
+    const snapshot = await query.get();
+    const allActivities = [];
+    
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      allActivities.push({
+        id: doc.id,
+        ...data,
+        timestamp: data.timestamp.toDate().toISOString()
+      });
+    });
+    
+    // Filter activities for enterprise users only
+    const enterpriseActivities = allActivities.filter(activity => 
+      enterpriseUserIds.includes(activity.userId)
+    );
+    
+    // Filter by scan type if provided
+    let filteredActivities = enterpriseActivities;
+    if (scanType) {
+      filteredActivities = enterpriseActivities.filter(activity => 
+        activity.details?.scanType === scanType
+      );
+    }
+    
+    // Calculate comprehensive analytics
+    const totalScans = filteredActivities.length;
+    const saveScans = filteredActivities.filter(a => a.details?.scanType === 'save').length;
+    const exchangeScans = filteredActivities.filter(a => a.details?.scanType === 'exchange').length;
+    
+    // Group by user
+    const userAnalytics = {};
+    enterpriseUserIds.forEach(userId => {
+      userAnalytics[userId] = {
+        userId,
+        totalScans: 0,
+        saveScans: 0,
+        exchangeScans: 0,
+        cards: {},
+        lastScanned: null
+      };
+    });
+    
+    // Process activities and populate user analytics
+    filteredActivities.forEach(activity => {
+      const userId = activity.userId;
+      const cardIndex = activity.details?.cardIndex || 0;
+      const scanType = activity.details?.scanType;
+      
+      if (userAnalytics[userId]) {
+        userAnalytics[userId].totalScans++;
+        if (scanType === 'save') userAnalytics[userId].saveScans++;
+        if (scanType === 'exchange') userAnalytics[userId].exchangeScans++;
+        
+        // Track per-card analytics
+        if (!userAnalytics[userId].cards[cardIndex]) {
+          userAnalytics[userId].cards[cardIndex] = {
+            cardIndex,
+            totalScans: 0,
+            saveScans: 0,
+            exchangeScans: 0,
+            lastScanned: null
+          };
+        }
+        
+        userAnalytics[userId].cards[cardIndex].totalScans++;
+        if (scanType === 'save') userAnalytics[userId].cards[cardIndex].saveScans++;
+        if (scanType === 'exchange') userAnalytics[userId].cards[cardIndex].exchangeScans++;
+        
+        // Update last scanned
+        const scanTime = new Date(activity.timestamp);
+        if (!userAnalytics[userId].lastScanned || scanTime > new Date(userAnalytics[userId].lastScanned)) {
+          userAnalytics[userId].lastScanned = activity.timestamp;
+        }
+        if (!userAnalytics[userId].cards[cardIndex].lastScanned || scanTime > new Date(userAnalytics[userId].cards[cardIndex].lastScanned)) {
+          userAnalytics[userId].cards[cardIndex].lastScanned = activity.timestamp;
+        }
+      }
+    });
+    
+    // Get user details for better analytics
+    const userDetails = {};
+    for (const userDoc of enterpriseUsersSnapshot.docs) {
+      const userData = userDoc.data();
+      userDetails[userDoc.id] = {
+        name: userData.name || '',
+        surname: userData.surname || '',
+        email: userData.email || '',
+        plan: userData.plan || 'unknown'
+      };
+    }
+    
+    // Add user details to analytics
+    Object.keys(userAnalytics).forEach(userId => {
+      if (userDetails[userId]) {
+        userAnalytics[userId] = {
+          ...userAnalytics[userId],
+          ...userDetails[userId]
+        };
+      }
+    });
+    
+    // Get top scanners
+    const topScanners = Object.values(userAnalytics)
+      .filter(user => user.totalScans > 0)
+      .sort((a, b) => b.totalScans - a.totalScans)
+      .slice(0, 10);
+    
+    // Get most scanned cards
+    const cardAnalytics = {};
+    Object.values(userAnalytics).forEach(user => {
+      Object.values(user.cards).forEach(card => {
+        const cardKey = `${user.userId}_${card.cardIndex}`;
+        if (!cardAnalytics[cardKey]) {
+          cardAnalytics[cardKey] = {
+            userId: user.userId,
+            userName: `${user.name} ${user.surname}`,
+            cardIndex: card.cardIndex,
+            totalScans: 0,
+            saveScans: 0,
+            exchangeScans: 0,
+            lastScanned: null
+          };
+        }
+        cardAnalytics[cardKey].totalScans += card.totalScans;
+        cardAnalytics[cardKey].saveScans += card.saveScans;
+        cardAnalytics[cardKey].exchangeScans += card.exchangeScans;
+        if (!cardAnalytics[cardKey].lastScanned || new Date(card.lastScanned) > new Date(cardAnalytics[cardKey].lastScanned)) {
+          cardAnalytics[cardKey].lastScanned = card.lastScanned;
+        }
+      });
+    });
+    
+    const topCards = Object.values(cardAnalytics)
+      .sort((a, b) => b.totalScans - a.totalScans)
+      .slice(0, 10);
+    
+    // Log this analytics view
+    await logActivity({
+      action: 'view',
+      resource: 'ACTIVITY_LOG',
+      userId: req.user?.uid,
+      details: {
+        operation: 'get_enterprise_scan_analytics',
+        enterpriseId: enterpriseId,
+        totalScans,
+        userCount: enterpriseUserIds.length,
+        filters: { startTime, endTime, scanType }
+      }
+    });
+    
+    res.status(200).json({
+      success: true,
+      enterprise: {
+        id: enterpriseId,
+        totalUsers: enterpriseUserIds.length,
+        activeUsers: Object.values(userAnalytics).filter(u => u.totalScans > 0).length
+      },
+      analytics: {
+        totalScans,
+        saveScans,
+        exchangeScans,
+        topScanners,
+        topCards,
+        timeRange: { startTime, endTime },
+        filters: { scanType }
+      },
+      userAnalytics: Object.values(userAnalytics).filter(u => u.totalScans > 0),
+      recentActivities: filteredActivities.slice(0, 50),
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    sendError(res, 500, 'Failed to get enterprise scan analytics', error);
+  }
+};
+
+/**
+ * Get all cards with scan counts for an enterprise
+ */
+exports.getEnterpriseCardsWithScans = async (req, res) => {
+  try {
+    logRequestInfo(req);
+    const { enterpriseId } = req.params;
+    const { includeInactive } = req.query;
+    
+    console.log('Getting all cards with scan counts for enterprise:', enterpriseId);
+    
+    if (!enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enterprise ID is required'
+      });
+    }
+    
+    // Get all enterprise users
+    const enterpriseUsersSnapshot = await db.collection('users')
+      .where('enterpriseRef', '==', db.doc(`enterprise/${enterpriseId}`))
+      .get();
+    
+    const enterpriseUserIds = enterpriseUsersSnapshot.docs.map(doc => doc.id);
+    
+    // Get all cards for enterprise users
+    const cardsWithScans = [];
+    
+    for (const userId of enterpriseUserIds) {
+      try {
+        const cardDoc = await db.collection('cards').doc(userId).get();
+        
+        if (cardDoc.exists) {
+          const cardData = cardDoc.data();
+          const userData = enterpriseUsersSnapshot.docs.find(doc => doc.id === userId)?.data();
+          
+          if (cardData.cards && Array.isArray(cardData.cards)) {
+            cardData.cards.forEach((card, cardIndex) => {
+              const cardWithScans = {
+                userId,
+                userName: userData ? `${userData.name || ''} ${userData.surname || ''}`.trim() : 'Unknown User',
+                userEmail: userData?.email || '',
+                cardIndex,
+                ...card,
+                scanCount: card.scanCount || 0,
+                lastScanned: card.lastScanned ? card.lastScanned.toDate().toISOString() : null
+              };
+              
+              // Include all cards or only cards with scans based on includeInactive flag
+              if (includeInactive === 'true' || cardWithScans.scanCount > 0) {
+                cardsWithScans.push(cardWithScans);
+              }
+            });
+          }
+        }
+      } catch (error) {
+        console.warn(`Error getting cards for user ${userId}:`, error.message);
+      }
+    }
+    
+    // Sort by scan count (highest first)
+    cardsWithScans.sort((a, b) => (b.scanCount || 0) - (a.scanCount || 0));
+    
+    // Calculate summary
+    const totalCards = cardsWithScans.length;
+    const totalScans = cardsWithScans.reduce((sum, card) => sum + (card.scanCount || 0), 0);
+    const activeCards = cardsWithScans.filter(card => (card.scanCount || 0) > 0).length;
+    
+    res.status(200).json({
+      success: true,
+      enterprise: {
+        id: enterpriseId,
+        totalCards,
+        totalScans,
+        activeCards,
+        averageScansPerCard: totalCards > 0 ? (totalScans / totalCards).toFixed(2) : 0
+      },
+      cards: cardsWithScans,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    sendError(res, 500, 'Failed to get enterprise cards with scans', error);
+  }
+};
+
+/**
+ * Get scan analytics for enterprise users
+ */
+exports.getScanAnalytics = async (req, res) => {
+  try {
+    logRequestInfo(req);
+    const { enterpriseId } = req.params;
+    const { startTime, endTime, scanType } = req.query;
+    
+    console.log('Getting scan analytics for enterprise:', enterpriseId);
+    
+    // Build query for scan activities
+    let query = db.collection('activityLogs')
+      .where('action', '==', 'scan')
+      .where('resource', '==', 'CARD');
+    
+    // Add time filters if provided
+    if (startTime) {
+      query = query.where('timestamp', '>=', admin.firestore.Timestamp.fromDate(new Date(startTime)));
+    }
+    if (endTime) {
+      query = query.where('timestamp', '<=', admin.firestore.Timestamp.fromDate(new Date(endTime)));
+    }
+    
+    const snapshot = await query.get();
+    const activities = [];
+    
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      activities.push({
+        id: doc.id,
+        ...data,
+        timestamp: data.timestamp.toDate().toISOString()
+      });
+    });
+    
+    // Filter by enterprise if provided
+    let enterpriseActivities = activities;
+    if (enterpriseId) {
+      // Get enterprise users and filter activities
+      const enterpriseUsersSnapshot = await db.collection('users')
+        .where('enterpriseRef', '==', db.doc(`enterprise/${enterpriseId}`))
+        .get();
+      
+      const enterpriseUserIds = enterpriseUsersSnapshot.docs.map(doc => doc.id);
+      enterpriseActivities = activities.filter(activity => 
+        enterpriseUserIds.includes(activity.userId)
+      );
+    }
+    
+    // Filter by scan type if provided
+    if (scanType) {
+      enterpriseActivities = enterpriseActivities.filter(activity => 
+        activity.details?.scanType === scanType
+      );
+    }
+    
+    // Calculate analytics
+    const totalScans = enterpriseActivities.length;
+    const saveScans = enterpriseActivities.filter(a => a.details?.scanType === 'save').length;
+    const exchangeScans = enterpriseActivities.filter(a => a.details?.scanType === 'exchange').length;
+    
+    // Group by user
+    const userScans = {};
+    enterpriseActivities.forEach(activity => {
+      const userId = activity.userId;
+      if (!userScans[userId]) {
+        userScans[userId] = { total: 0, save: 0, exchange: 0 };
+      }
+      userScans[userId].total++;
+      if (activity.details?.scanType === 'save') userScans[userId].save++;
+      if (activity.details?.scanType === 'exchange') userScans[userId].exchange++;
+    });
+    
+    // Get user details for the top scanners
+    const topScanners = Object.entries(userScans)
+      .sort(([,a], [,b]) => b.total - a.total)
+      .slice(0, 10)
+      .map(([userId, counts]) => ({ userId, ...counts }));
+    
+    // Log this analytics view
+    await logActivity({
+      action: 'view',
+      resource: 'ACTIVITY_LOG',
+      userId: req.user?.uid,
+      details: {
+        operation: 'get_scan_analytics',
+        enterpriseId: enterpriseId || 'all',
+        totalScans,
+        filters: { startTime, endTime, scanType }
+      }
+    });
+    
+    res.status(200).json({
+      success: true,
+      analytics: {
+        totalScans,
+        saveScans,
+        exchangeScans,
+        topScanners,
+        timeRange: { startTime, endTime },
+        filters: { scanType }
+      },
+      activities: enterpriseActivities.slice(0, 50), // Limit recent activities
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    sendError(res, 500, 'Failed to get scan analytics', error);
+  }
+};
+
+/**
+ * Get all activities
+ */

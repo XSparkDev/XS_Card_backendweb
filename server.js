@@ -194,7 +194,7 @@ app.post('/track-scan', async (req, res) => {
 
     // Log the scan activity
     await logActivity({
-      action: 'SCAN',
+      action: 'scan',
       resource: 'CARD',
       userId: userId,
       resourceId: userId,

@@ -15,7 +15,9 @@ const ACTIONS = {
   INITIALIZE: 'initialize',
   CANCEL: 'cancel',
   ERROR: 'error',
-  GENERATE: 'generate'
+  GENERATE: 'generate',
+  SCAN: 'scan',
+  VIEW: 'view'
 };
 
 // Resource types
