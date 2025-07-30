@@ -1084,6 +1084,14 @@
                     </div>
                 </div>
                 
+                <!-- Company field -->
+                <div class="form-group">
+                    <div class="floating-label">
+                        <input type="text" id="scannerCompany" placeholder=" ">
+                        <label for="scannerCompany">Company</label>
+                    </div>
+                </div>
+                
                 <button class="submit-btn" onclick="handleExchangeSubmit()">
                     <span class="material-icons">send</span>
                     Send Contact
@@ -1651,6 +1659,7 @@ END:VCARD`;
             const scannerSurname = document.getElementById('scannerSurname').value;
             const scannerPhone = document.getElementById('scannerPhone').value;
             const scannerEmail = document.getElementById('scannerEmail').value;
+            const scannerCompany = document.getElementById('scannerCompany').value;
             const howWeMet = document.getElementById('howWeMet').value;
 
             // Only require name, surname and how we met
@@ -1667,6 +1676,7 @@ END:VCARD`;
                     surname: scannerSurname,
                     phone: scannerPhone,
                     email: scannerEmail, // Include email exactly as in your working example
+                    company: scannerCompany, // Add company field
                     howWeMet: howWeMet
                 }
             };

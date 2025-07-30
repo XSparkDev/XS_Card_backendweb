@@ -3,6 +3,9 @@ const { transporter, sendMailWithStatus } = require('../public/Utils/emailServic
 const { formatDate } = require('../utils/dateFormatter');
 const { logActivity, ACTIONS, RESOURCES } = require('../utils/logger');
 
+// Import contact cache for invalidation
+const { contactCache } = require('./enterprise/contactAggregationController');
+
 // Add constant for free plan limit
 const FREE_PLAN_CONTACT_LIMIT = 3;
 
@@ -221,6 +224,14 @@ exports.saveContactInfo = async (req, res) => {
             contactList: existingContacts
         }, { merge: true });
 
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact addition');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
         // Send email notification if user has email
         if (userData.email) {
             const mailOptions = {
@@ -355,6 +366,14 @@ exports.deleteContact = async (req, res) => {
 
         await contactRef.delete();
         
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact list deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+        
         // Log successful contact list deletion with await
         await logActivity({
             action: ACTIONS.DELETE,
@@ -429,6 +448,14 @@ exports.deleteContactFromList = async (req, res) => {
         await contactRef.update({
             contactList: currentContacts // Note: using contactList, not contactsList
         });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
 
         // Log successful individual contact deletion with await
         await logActivity({
