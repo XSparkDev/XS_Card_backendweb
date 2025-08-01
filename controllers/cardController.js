@@ -1,24 +1,9 @@
 const { db, admin } = require('../firebase.js');
 const QRCode = require('qrcode');
-const multer = require('multer');
-const path = require('path');
 const axios = require('axios');
 const config = require('../config/config');
 const { formatDate } = require('../utils/dateFormatter');
 const { logActivity, ACTIONS, RESOURCES } = require('../utils/logger');
-
-// Configure storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const upload = multer({ storage: storage });
 
 // Shared error response helper
 const sendError = (res, status, message, error = null) => {
@@ -119,7 +104,9 @@ exports.addCard = async (req, res) => {
             phone, 
             title, 
             name,
-            surname
+            surname,
+            socials,
+            ...otherFields
         } = req.body;
 
         // Validate fields are not only present but also have values
@@ -141,18 +128,66 @@ exports.addCard = async (req, res) => {
         const cardRef = db.collection('cards').doc(userId);
         const cardDoc = await cardRef.get();
 
-        // Handle file paths if files were uploaded
-        let profileImagePath = null;
-        let companyLogoPath = null;
+        // Handle file URLs from Firebase Storage
+        let profileImageUrl = null;
+        let companyLogoUrl = null;
 
-        if (req.files) {
-            if (req.files.profileImage) {
-                profileImagePath = `/profiles/${req.files.profileImage[0].filename}`;
-            }
-            if (req.files.companyLogo) {
-                companyLogoPath = `/profiles/${req.files.companyLogo[0].filename}`;
+        if (req.firebaseStorageUrls) {
+            profileImageUrl = req.firebaseStorageUrls.profileImage || null;
+            companyLogoUrl = req.firebaseStorageUrls.companyLogo || null;
+        }
+
+        // Handle socials normalization (same logic as updateCard)
+        let normalizedSocials = {};
+        if (socials) {
+            if (typeof socials === 'string') {
+                try {
+                    // Parse JSON string to object
+                    const parsedSocials = JSON.parse(socials);
+                    Object.keys(parsedSocials).forEach(platform => {
+                        const socialData = parsedSocials[platform];
+                        if (socialData && typeof socialData === 'object' && socialData.link && socialData.title) {
+                            normalizedSocials[platform] = {
+                                link: socialData.link,
+                                title: socialData.title
+                            };
+                        }
+                    });
+                } catch (e) {
+                    console.warn('Failed to parse socials JSON string:', e.message);
+                }
+            } else if (typeof socials === 'object') {
+                // Already an object, normalize it
+                Object.keys(socials).forEach(platform => {
+                    const socialData = socials[platform];
+                    if (socialData && typeof socialData === 'object' && socialData.link && socialData.title) {
+                        normalizedSocials[platform] = {
+                            link: socialData.link,
+                            title: socialData.title
+                        };
+                    }
+                });
             }
         }
+        
+        // Also handle individual social media fields (for backward compatibility)
+        const socialPlatforms = ['linkedin', 'twitter', 'github', 'facebook', 'instagram', 'youtube', 'tiktok', 'whatsapp', 'telegram', 'snapchat', 'pinterest'];
+        const individualSocials = {};
+        
+        socialPlatforms.forEach(platform => {
+            if (otherFields[platform] && typeof otherFields[platform] === 'object' && otherFields[platform].link && otherFields[platform].title) {
+                individualSocials[platform] = {
+                    link: otherFields[platform].link,
+                    title: otherFields[platform].title
+                };
+            }
+        });
+        
+        // Merge individual socials into the main socials object
+        const finalSocials = {
+            ...normalizedSocials,
+            ...individualSocials
+        };
 
         const newCard = {
             company,
@@ -161,11 +196,11 @@ exports.addCard = async (req, res) => {
             occupation: title,
             name: name || '',
             surname: surname || '',
-            socials: {},
+            socials: finalSocials, // Store all socials in the socials object
             colorScheme: '#1B2B5B',
             createdAt: admin.firestore.Timestamp.now(), // Store as Firestore Timestamp
-            profileImage: profileImagePath,
-            companyLogo: companyLogoPath
+            profileImage: profileImageUrl,
+            companyLogo: companyLogoUrl
         };
 
         console.log('Creating new card:', newCard); // Debug log
@@ -247,27 +282,91 @@ exports.updateCard = async (req, res) => {
         const doc = await cardRef.get();
 
         if (!doc.exists) {
-            return res.status(404).send({ message: 'User cards not found' });
+            return res.status(404).json({
+                success: false,
+                message: 'User cards not found',
+                error: 'Cards not found'
+            });
         }
 
         const cardsData = doc.data();
         if (!cardsData.cards || !cardsData.cards[cardIndex]) {
-            return res.status(404).send({ message: 'Card not found at specified index' });
+            return res.status(404).json({
+                success: false,
+                message: 'Card not found at specified index',
+                error: 'Card not found'
+            });
         }
 
         let updateData = {};
 
-        // Handle file upload
-        if (req.file) {
-            const filePath = `/profiles/${req.file.filename}`; // Changed from /uploads/ to /profiles/
+        // Handle file upload using Firebase Storage
+        if (req.file && req.file.firebaseUrl) {
             if (req.body.imageType === 'profileImage') {
-                updateData.profileImage = filePath;
+                updateData.profileImage = req.file.firebaseUrl;
             } else if (req.body.imageType === 'companyLogo') {
-                updateData.companyLogo = filePath;
+                updateData.companyLogo = req.file.firebaseUrl;
             }
         } else if (req.body) {
             // If no file but has body data, it's a regular update
             updateData = JSON.parse(JSON.stringify(req.body));
+            
+            // Handle socials normalization for updates (same logic as addCard)
+            if (req.body.socials) {
+                let normalizedSocials = {};
+                
+                if (typeof req.body.socials === 'string') {
+                    try {
+                        // Parse JSON string to object
+                        const parsedSocials = JSON.parse(req.body.socials);
+                        Object.keys(parsedSocials).forEach(platform => {
+                            const socialData = parsedSocials[platform];
+                            if (socialData && typeof socialData === 'object' && socialData.link && socialData.title) {
+                                normalizedSocials[platform] = {
+                                    link: socialData.link,
+                                    title: socialData.title
+                                };
+                            }
+                        });
+                    } catch (e) {
+                        console.warn('Failed to parse socials JSON string:', e.message);
+                    }
+                } else if (typeof req.body.socials === 'object') {
+                    // Already an object, normalize it
+                    Object.keys(req.body.socials).forEach(platform => {
+                        const socialData = req.body.socials[platform];
+                        if (socialData && typeof socialData === 'object' && socialData.link && socialData.title) {
+                            normalizedSocials[platform] = {
+                                link: socialData.link,
+                                title: socialData.title
+                            };
+                        }
+                    });
+                }
+                
+                updateData.socials = normalizedSocials;
+            }
+            
+            // Also handle individual social media fields (for backward compatibility)
+            const socialPlatforms = ['linkedin', 'twitter', 'github', 'facebook', 'instagram', 'youtube', 'tiktok', 'whatsapp', 'telegram', 'snapchat', 'pinterest'];
+            const individualSocials = {};
+            
+            socialPlatforms.forEach(platform => {
+                if (req.body[platform] && typeof req.body[platform] === 'object' && req.body[platform].link && req.body[platform].title) {
+                    individualSocials[platform] = {
+                        link: req.body[platform].link,
+                        title: req.body[platform].title
+                    };
+                }
+            });
+            
+            // Merge individual socials into the main socials object
+            if (Object.keys(individualSocials).length > 0) {
+                updateData.socials = {
+                    ...(updateData.socials || {}),
+                    ...individualSocials
+                };
+            }
         }
 
         // Update the specific card in the array
@@ -295,9 +394,28 @@ exports.updateCard = async (req, res) => {
             }
         });
 
-        res.status(200).send({ 
+        // Format response to match EditCardResponse interface
+        const responseData = {
+            id: cardIndex.toString(), // Use card index as ID
+            name: updatedCards[cardIndex].name || '',
+            surname: updatedCards[cardIndex].surname || '',
+            occupation: updatedCards[cardIndex].occupation || '',
+            email: updatedCards[cardIndex].email || '',
+            phone: updatedCards[cardIndex].phone || '',
+            colorScheme: updatedCards[cardIndex].colorScheme || '#1B2B5B',
+            departmentName: updatedCards[cardIndex].departmentName || undefined,
+            employeeTitle: updatedCards[cardIndex].employeeTitle || undefined,
+            profileImage: updatedCards[cardIndex].profileImage || undefined,
+            companyLogo: updatedCards[cardIndex].companyLogo || undefined,
+            numberOfScan: updatedCards[cardIndex].scanCount || 0, // Map scanCount to numberOfScan
+            // Include socials object with normalized structure
+            socials: updatedCards[cardIndex].socials || {}
+        };
+
+        res.status(200).json({
+            success: true,
             message: 'Card updated successfully',
-            updatedCard: updatedCards[cardIndex]
+            data: responseData
         });
     } catch (error) {
         console.error('Update card error:', error);
@@ -315,7 +433,8 @@ exports.updateCard = async (req, res) => {
             }
         });
         
-        res.status(500).send({
+        res.status(500).json({
+            success: false,
             message: 'Failed to update card',
             error: error.message
         });
