@@ -76,39 +76,54 @@ exports.getSecurityLogs = async (req, res) => {
       });
     });
 
-    // Build query for activity logs
-    let query = db.collection('activityLogs')
-      .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(startTime));
-
-    // Add filters
-    if (userId && enterpriseUserIds.has(userId)) {
-      query = query.where('userId', '==', userId);
-    }
+    // Build query for activity logs with fallback for missing indexes
+    let snapshot;
+    let indexError = null;
     
-    if (action) {
-      query = query.where('action', '==', action);
-    }
-    
-    if (resource) {
-      query = query.where('resource', '==', resource);
-    }
+    try {
+      // Try the optimized query first (requires composite index)
+      let query = db.collection('activityLogs')
+        .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(startTime));
 
-    if (success !== undefined) {
-      const successValue = success === 'true';
-      query = query.where('status', '==', successValue ? 'success' : 'error');
-    }
-
-    // Order by timestamp (newest first) and limit
-    query = query.orderBy('timestamp', 'desc').limit(parseInt(limit));
-
-    if (startAfter) {
-      const startAfterDoc = await db.collection('activityLogs').doc(startAfter).get();
-      if (startAfterDoc.exists) {
-        query = query.startAfter(startAfterDoc);
+      // Add filters
+      if (userId && enterpriseUserIds.has(userId)) {
+        query = query.where('userId', '==', userId);
       }
-    }
+      
+      if (action) {
+        query = query.where('action', '==', action);
+      }
+      
+      if (resource) {
+        query = query.where('resource', '==', resource);
+      }
 
-    const snapshot = await query.get();
+      if (success !== undefined) {
+        const successValue = success === 'true';
+        query = query.where('status', '==', successValue ? 'success' : 'error');
+      }
+
+      // Order by timestamp (newest first) and limit
+      query = query.orderBy('timestamp', 'desc').limit(parseInt(limit));
+
+      if (startAfter) {
+        const startAfterDoc = await db.collection('activityLogs').doc(startAfter).get();
+        if (startAfterDoc.exists) {
+          query = query.startAfter(startAfterDoc);
+        }
+      }
+
+      snapshot = await query.get();
+    } catch (error) {
+      indexError = error;
+      console.log('Composite index not available, using fallback query:', error.message);
+      
+      // Fallback: Get all logs for time range and filter in memory
+      snapshot = await db.collection('activityLogs')
+        .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(startTime))
+        .limit(1000) // Increase limit for fallback to ensure we get enough data
+        .get();
+    }
     const allLogs = [];
 
     // Process all logs and filter by enterprise
@@ -117,6 +132,33 @@ exports.getSecurityLogs = async (req, res) => {
       
       // Include log if user belongs to enterprise or is system
       if (enterpriseUserIds.has(logData.userId) || logData.userId === 'system') {
+        // If using fallback query, apply filters in memory
+        if (indexError) {
+          // Filter by userId
+          if (userId && enterpriseUserIds.has(userId) && logData.userId !== userId) {
+            return;
+          }
+          
+          // Filter by action
+          if (action && logData.action !== action) {
+            return;
+          }
+          
+          // Filter by resource
+          if (resource && logData.resource !== resource) {
+            return;
+          }
+          
+          // Filter by success status
+          if (success !== undefined) {
+            const successValue = success === 'true';
+            const expectedStatus = successValue ? 'success' : 'error';
+            if (logData.status !== expectedStatus) {
+              return;
+            }
+          }
+        }
+        
         allLogs.push({
           id: doc.id,
           ...logData,
@@ -124,6 +166,18 @@ exports.getSecurityLogs = async (req, res) => {
         });
       }
     });
+
+    // Sort by timestamp if we used fallback query
+    if (indexError && allLogs.length > 0) {
+      allLogs.sort((a, b) => {
+        const aTime = new Date(a.timestamp);
+        const bTime = new Date(b.timestamp);
+        return bTime - aTime; // Newest first
+      });
+      
+      // Apply limit after sorting
+      allLogs.splice(parseInt(limit));
+    }
 
     // Apply search filter if provided
     let filteredLogs = allLogs;
@@ -206,7 +260,9 @@ exports.getSecurityLogs = async (req, res) => {
           timeRange: {
             start: startTime.toISOString(),
             end: now.toISOString()
-          }
+          },
+          fallbackQuery: indexError ? true : false,
+          fallbackReason: indexError ? 'Composite index not available - results filtered in memory' : null
         }
       }
     });
@@ -296,26 +352,40 @@ exports.exportSecurityLogs = async (req, res) => {
       });
     });
 
-    // Build query for activity logs
-    let query = db.collection('activityLogs')
-      .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(startTime))
-      .orderBy('timestamp', 'desc');
-
-    // Add filters
-    if (userId && enterpriseUserIds.has(userId)) {
-      query = query.where('userId', '==', userId);
-    }
+    // Build query for activity logs with fallback for missing indexes
+    let snapshot;
+    let indexError = null;
     
-    if (action) {
-      query = query.where('action', '==', action);
-    }
-    
-    if (resource) {
-      query = query.where('resource', '==', resource);
-    }
+    try {
+      // Try the optimized query first (requires composite index)
+      let query = db.collection('activityLogs')
+        .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(startTime))
+        .orderBy('timestamp', 'desc');
 
-    // Get all matching logs (no limit for export)
-    const snapshot = await query.get();
+      // Add filters
+      if (userId && enterpriseUserIds.has(userId)) {
+        query = query.where('userId', '==', userId);
+      }
+      
+      if (action) {
+        query = query.where('action', '==', action);
+      }
+      
+      if (resource) {
+        query = query.where('resource', '==', resource);
+      }
+
+      // Get all matching logs (no limit for export)
+      snapshot = await query.get();
+    } catch (error) {
+      indexError = error;
+      console.log('Composite index not available for export, using fallback query:', error.message);
+      
+      // Fallback: Get all logs for time range and filter in memory
+      snapshot = await db.collection('activityLogs')
+        .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(startTime))
+        .get();
+    }
     const allLogs = [];
 
     // Process all logs and filter by enterprise
