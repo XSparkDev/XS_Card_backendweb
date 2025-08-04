@@ -64,7 +64,9 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-app.use(express.json());
+// Increase body parser limit for email attachments and large payloads
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Public routes - must be before authentication middleware
@@ -786,5 +788,9 @@ const { testLogging } = require('./utils/logger');
 testLogging().then(success => {
   console.log('Test logging result:', success);
 });
+
+// Initialize Security Alert Detection Service
+const { initializeAlertDetection } = require('./controllers/enterprise/alertDetectionService');
+initializeAlertDetection();
 
 app.listen(port, () => console.log(`Server has started on port: ${port}`));

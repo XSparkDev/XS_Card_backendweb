@@ -705,4 +705,291 @@ exports.createSampleInvoices = async (req, res) => {
       error: error.message
     });
   }
+};
+
+/**
+ * Send Email via Enterprise Interface
+ * Comprehensive email system with attachments, CC/BCC, priority support
+ */
+exports.sendEnterpriseEmail = async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const {
+      to,
+      cc = [],
+      bcc = [],
+      subject,
+      body,
+      htmlBody,
+      attachments = [],
+      priority = 'normal',
+      isHtml = false
+    } = req.body;
+
+    // Validate required fields
+    if (!to || !Array.isArray(to) || to.length === 0) {
+      return res.status(400).json({
+        status: false,
+        message: 'At least one recipient email address is required'
+      });
+    }
+
+    if (!subject || !subject.trim()) {
+      return res.status(400).json({
+        status: false,
+        message: 'Email subject is required'
+      });
+    }
+
+    if (!body || !body.trim()) {
+      return res.status(400).json({
+        status: false,
+        message: 'Email body is required'
+      });
+    }
+
+    // Validate email addresses
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const allEmails = [...to, ...cc, ...bcc];
+    
+    for (const email of allEmails) {
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          status: false,
+          message: `Invalid email address: ${email}`
+        });
+      }
+    }
+
+    // Get user information for sender details
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        status: false,
+        message: 'User not found'
+      });
+    }
+
+    const userData = userDoc.data();
+    const senderName = userData.name && userData.surname ? 
+      `${userData.name} ${userData.surname}` : 
+      userData.name || userData.email || 'XS Card User';
+
+    // Prepare email attachments for nodemailer
+    const emailAttachments = attachments.map(attachment => ({
+      filename: attachment.filename,
+      content: attachment.content,
+      encoding: 'base64',
+      contentType: attachment.contentType
+    }));
+
+    // Set priority headers
+    const priorityHeaders = {
+      'X-Priority': priority === 'high' ? '1' : priority === 'low' ? '5' : '3',
+      'X-MSMail-Priority': priority === 'high' ? 'High' : priority === 'low' ? 'Low' : 'Normal',
+      'Importance': priority === 'high' ? 'High' : priority === 'low' ? 'Low' : 'Normal'
+    };
+
+    // Prepare comprehensive email options
+    const mailOptions = {
+      from: {
+        name: senderName,
+        address: process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER
+      },
+      to: to.join(', '),
+      cc: cc.length > 0 ? cc.join(', ') : undefined,
+      bcc: bcc.length > 0 ? bcc.join(', ') : undefined,
+      subject: subject.trim(),
+      text: body.trim(),
+      html: isHtml ? (htmlBody || body.trim()) : undefined,
+      attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
+      headers: {
+        ...priorityHeaders,
+        'X-Enterprise-Email': 'true',
+        'X-Sender-User-ID': userId,
+        'X-Sent-Via': 'XS Card Enterprise Interface'
+      }
+    };
+
+    // Send email using enhanced email service
+    const { sendMailWithStatus } = require('../public/Utils/emailService');
+    const emailResult = await sendMailWithStatus(mailOptions);
+
+    if (!emailResult.success) {
+      return res.status(500).json({
+        status: false,
+        message: 'Failed to send email',
+        error: emailResult.error || 'Unknown email service error'
+      });
+    }
+
+    // Log the email activity
+    await logActivity({
+      action: ACTIONS.SEND,
+      resource: 'ENTERPRISE_EMAIL',
+      userId: userId,
+      resourceId: emailResult.messageId || 'unknown',
+      details: {
+        recipients: to,
+        ccRecipients: cc,
+        bccRecipients: bcc.length > 0 ? bcc.length : 0, // Don't log actual BCC for privacy
+        subject: subject,
+        priority: priority,
+        hasAttachments: attachments.length > 0,
+        attachmentCount: attachments.length,
+        messageId: emailResult.messageId,
+        senderName: senderName
+      }
+    });
+
+    // Create email log entry in database for enterprise audit trail
+    const emailLogData = {
+      userId: userId,
+      senderName: senderName,
+      senderEmail: userData.email,
+      recipients: to,
+      ccRecipients: cc,
+      bccRecipientCount: bcc.length, // Don't store actual BCC for privacy
+      subject: subject,
+      bodyPreview: body.substring(0, 200) + (body.length > 200 ? '...' : ''),
+      priority: priority,
+      attachmentCount: attachments.length,
+      attachmentNames: attachments.map(att => att.filename),
+      messageId: emailResult.messageId,
+      sentAt: new Date().toISOString(),
+      status: 'sent',
+      accepted: emailResult.accepted || [],
+      rejected: emailResult.rejected || [],
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    const emailLogRef = await db.collection('enterpriseEmailLogs').add(emailLogData);
+
+    res.status(200).json({
+      status: true,
+      message: 'Email sent successfully',
+      data: {
+        messageId: emailResult.messageId,
+        emailLogId: emailLogRef.id,
+        recipients: {
+          to: to,
+          cc: cc,
+          bccCount: bcc.length
+        },
+        attachmentCount: attachments.length,
+        priority: priority,
+        sentAt: new Date().toISOString(),
+        accepted: emailResult.accepted || [],
+        rejected: emailResult.rejected || []
+      }
+    });
+
+  } catch (error) {
+    console.error('Error sending enterprise email:', error);
+
+    // Log the error
+    await logActivity({
+      action: ACTIONS.ERROR,
+      resource: 'ENTERPRISE_EMAIL',
+      userId: req.user?.uid || 'unknown',
+      status: 'error',
+      details: {
+        error: error.message,
+        operation: 'send_enterprise_email',
+        subject: req.body?.subject,
+        recipientCount: req.body?.to?.length || 0
+      }
+    });
+
+    res.status(500).json({
+      status: false,
+      message: 'Failed to send enterprise email',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get Enterprise Email Logs (for audit trail)
+ */
+exports.getEnterpriseEmailLogs = async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { limit = 50, startAfter } = req.query;
+
+    // Build query with fallback for missing index
+    let snapshot;
+    let indexError = null;
+    try {
+      // Try the optimized query first (requires composite index)
+      let query = db.collection('enterpriseEmailLogs')
+        .where('userId', '==', userId)
+        .orderBy('sentAt', 'desc')
+        .limit(parseInt(limit));
+
+      if (startAfter) {
+        const startAfterDoc = await db.collection('enterpriseEmailLogs').doc(startAfter).get();
+        if (startAfterDoc.exists) {
+          query = query.startAfter(startAfterDoc);
+        }
+      }
+
+      snapshot = await query.get();
+    } catch (error) {
+      indexError = error;
+      console.log('Composite index not available, using fallback query:', error.message);
+      // Fallback: Get all logs for user without ordering
+      snapshot = await db.collection('enterpriseEmailLogs')
+        .where('userId', '==', userId)
+        .limit(parseInt(limit))
+        .get();
+    }
+
+    const emailLogs = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      emailLogs.push({
+        id: doc.id,
+        senderName: data.senderName,
+        senderEmail: data.senderEmail,
+        recipients: data.recipients,
+        ccRecipients: data.ccRecipients,
+        bccRecipientCount: data.bccRecipientCount,
+        subject: data.subject,
+        bodyPreview: data.bodyPreview,
+        priority: data.priority,
+        attachmentCount: data.attachmentCount,
+        attachmentNames: data.attachmentNames,
+        messageId: data.messageId,
+        sentAt: data.sentAt,
+        status: data.status,
+        accepted: data.accepted,
+        rejected: data.rejected
+      });
+    });
+
+    // Sort manually by date if we used the fallback query
+    if (emailLogs.length > 0) {
+      emailLogs.sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt));
+    }
+
+    res.status(200).json({
+      status: true,
+      data: {
+        emailLogs,
+        hasMore: snapshot.docs.length === parseInt(limit),
+        lastDoc: snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1].id : null,
+        note: indexError ? 'Using fallback query - consider creating the composite index for better performance' : null
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting enterprise email logs:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Failed to retrieve email logs',
+      error: error.message
+    });
+  }
 }; 

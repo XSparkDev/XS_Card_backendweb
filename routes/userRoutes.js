@@ -35,6 +35,11 @@ router.get('/verify-email', userController.verifyEmail);
 router.get('/public/Users', userController.getAllUsers);
 router.get('/public/Users/:id', userController.getUserById);
 
+// Password reset routes (no authentication required)
+router.post('/forgot-password', userController.forgotPassword);
+router.post('/reset-password', userController.resetPassword);
+router.get('/reset-user-info', userController.getResetUserInfo);
+
 // All routes below this middleware will require authentication
 router.use(authenticateUser);
 

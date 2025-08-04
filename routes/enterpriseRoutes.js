@@ -33,6 +33,14 @@ if (process.env.NODE_ENV !== 'production') {
   router.post('/enterprise/:enterpriseId/create-sample-invoices', authenticateUser, enterpriseController.createSampleInvoices);
 }
 
+// Enterprise Email Interface - with increased payload limit for attachments
+router.post('/enterprise/email/send', 
+  express.json({ limit: '50mb' }), 
+  authenticateUser, 
+  enterpriseController.sendEnterpriseEmail
+);
+router.get('/enterprise/email/logs', authenticateUser, enterpriseController.getEnterpriseEmailLogs);
+
 // Contact aggregation endpoints (with caching)
 router.get('/enterprise/:enterpriseId/contacts/summary', authenticateUser, contactAggregationController.getEnterpriseContactsSummary);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/contacts/summary', authenticateUser, contactAggregationController.getDepartmentContactsSummary);
@@ -55,5 +63,26 @@ router.get('/cache/config', authenticateUser, contactAggregationController.getCa
 
 // Advanced analytics
 router.get('/cache/analytics', authenticateUser, contactAggregationController.getCacheAnalytics);
+
+// Security Alerts System Routes
+const securityAlertsController = require('../controllers/enterprise/securityAlertsController');
+const securityLogsController = require('../controllers/enterprise/securityLogsController');
+const securityActionsController = require('../controllers/enterprise/securityActionsController');
+
+// Security Alerts endpoints
+router.get('/enterprise/:enterpriseId/security/alerts', authenticateUser, securityAlertsController.getSecurityAlerts);
+router.post('/enterprise/:enterpriseId/security/alerts/:alertId/acknowledge', authenticateUser, securityAlertsController.acknowledgeSecurityAlert);
+router.post('/enterprise/:enterpriseId/security/alerts/:alertId/resolve', authenticateUser, securityAlertsController.resolveSecurityAlert);
+
+// Security Logs endpoints
+router.get('/enterprise/:enterpriseId/security/logs', authenticateUser, securityLogsController.getSecurityLogs);
+router.get('/enterprise/:enterpriseId/security/logs/export', authenticateUser, securityLogsController.exportSecurityLogs);
+router.get('/enterprise/:enterpriseId/security/logs/stats', authenticateUser, securityLogsController.getSecurityLogStats);
+
+// Security Actions endpoints
+router.post('/enterprise/:enterpriseId/security/actions/force-password-reset', authenticateUser, securityActionsController.forcePasswordReset);
+router.post('/enterprise/:enterpriseId/security/actions/temp-lock-account', authenticateUser, securityActionsController.tempLockAccount);
+router.post('/enterprise/:enterpriseId/security/actions/send-security-alert', authenticateUser, securityActionsController.sendSecurityAlert);
+router.post('/enterprise/:enterpriseId/security/actions/create-incident', authenticateUser, securityActionsController.createIncidentReport);
 
 module.exports = router;

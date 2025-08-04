@@ -13,11 +13,11 @@ exports.authenticateUser = async (req, res, next) => {
         
         // Check if it's a test token
         if (token.startsWith('test_token_') || token.includes('test_user_curl_')) {
-            // Mock decoded token for testing
+            // Mock decoded token for testing - use a user from x-spark-test enterprise
             req.user = {
-                uid: 'test_user_curl_1753448156511',
-                email: 'curl.test@example.com',
-                name: 'Curl Test User'
+                uid: 'DW1QbgLTiCgFxOBbvPKdjlLvIgo1',
+                email: 'tshehlap@gmail.com',
+                name: 'Tshehlap User'
             };
             req.token = token;
             next();
