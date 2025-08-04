@@ -1041,20 +1041,21 @@ exports.addEmployee = async (req, res) => {
                     };
                     
                     // ========================================
-                    // CARD CREATION - FUTURE TEMPLATE SYSTEM
+                    // CARD CREATION WITH TEMPLATE SYSTEM
                     // ========================================
-                    // TODO: Replace with department-specific card templates
-                    // TODO: Apply enterprise color scheme and branding
-                    // TODO: Add role-based card layouts (Manager vs Employee)
-                    // TODO: Implement department template inheritance
-                    // TODO: Add enterprise logo and branding elements
-                    // TODO: Implement card versioning for template updates
-                    // TODO: Add department-specific contact fields
-                    // TODO: Implement card sharing permissions within enterprise
-                    // ========================================
+                    // Get effective template for this department (department overrides enterprise)
+                    const { getEffectiveTemplateForCardCreation } = require('../cardTemplateController');
+                    const effectiveTemplate = await getEffectiveTemplateForCardCreation(enterpriseId, departmentId);
                     
-                    // Create card data (replicating addUser card creation)
-                    // FUTURE: This will use department/enterprise templates
+                    console.log(`Using template for employee card creation:`, {
+                        templateId: effectiveTemplate.templateId,
+                        templateName: effectiveTemplate.templateName,
+                        source: effectiveTemplate.source,
+                        colorScheme: effectiveTemplate.colorScheme,
+                        companyLogo: effectiveTemplate.companyLogo
+                    });
+                    
+                    // Create card data with template values
                     const cardData = {
                         cards: [{
                             name: firstName,
@@ -1064,15 +1065,14 @@ exports.addEmployee = async (req, res) => {
                             occupation: position || title || '',
                             company: enterpriseData.name || '',
                             profileImage: profileImage || null,
-                            companyLogo: enterpriseData.logoUrl || null,
+                            // Apply template values (colorScheme and companyLogo)
+                            companyLogo: effectiveTemplate.companyLogo || enterpriseData.logoUrl || null,
                             socials: {},
-                            colorScheme: colorScheme || '#1B2B5B', // Use same default as addUser
-                            // FUTURE: Add department template reference
-                            // departmentTemplate: departmentId,
-                            // FUTURE: Add enterprise template reference  
-                            // enterpriseTemplate: enterpriseId,
-                            // FUTURE: Add role-based customization
-                            // roleCustomization: role,
+                            colorScheme: effectiveTemplate.colorScheme,
+                            // Template metadata for tracking
+                            templateId: effectiveTemplate.templateId,
+                            templateName: effectiveTemplate.templateName,
+                            templateSource: effectiveTemplate.source,
                             createdAt: admin.firestore.Timestamp.now()
                         }]
                     };

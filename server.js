@@ -40,6 +40,7 @@ const activityLogRoutes = require('./routes/activityLogRoutes');
 const enterpriseRoutes = require('./routes/enterpriseRoutes');
 const locationRoutes = require('./routes/locationRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const cardTemplateRoutes = require('./routes/cardTemplateRoutes');
 
 // Location tracking middleware
 const { enrichContactWithIp, processContactLocation, getClientIp } = require('./contactMiddleware');
@@ -545,6 +546,7 @@ app.use('/', billingRoutes);
 app.use('/', activityLogRoutes); // Mount at root instead of /api/logs
 app.use('/', enterpriseRoutes);
 app.use('/', notificationRoutes);
+app.use('/api/templates', cardTemplateRoutes);
 
 // Modify the user creation route to handle file upload
 app.post('/api/users', upload.single('profileImage'), (req, res, next) => {
