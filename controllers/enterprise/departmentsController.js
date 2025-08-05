@@ -213,14 +213,15 @@ exports.createDepartment = async (req, res) => {
                     updatedAt: admin.firestore.Timestamp.now()
                 };
                 
-                // Add to employees subcollection
+                // Add to employees subcollection using userId as document ID
                 const employeesRef = newDepartmentRef.collection('employees');
-                const newEmployeeRef = await employeesRef.add(employeeData);
+                const newEmployeeRef = employeesRef.doc(manager.id); // Use userId as document ID
+                await newEmployeeRef.set(employeeData);
                 
                 // Update user document with references
                 await db.collection('users').doc(manager.id).update({
                     isEmployee: true,
-                    employeeRef: db.doc(`${employeesCollectionPath}/${newEmployeeRef.id}`),
+                    employeeRef: db.doc(`${employeesCollectionPath}/${manager.id}`), // Use userId in path
                     departmentRef: newDepartmentRef,
                     enterpriseRef: enterpriseRef,
                     updatedAt: admin.firestore.Timestamp.now()
@@ -228,7 +229,7 @@ exports.createDepartment = async (req, res) => {
                 
                 // Add to response data
                 addedEmployees.push({
-                    id: newEmployeeRef.id,
+                    id: manager.id, // Document ID is now the userId
                     userId: manager.id,
                     role: 'manager',
                     name: manager.data.name || '',
@@ -379,15 +380,15 @@ exports.updateDepartment = async (req, res) => {
                             updatedAt: admin.firestore.Timestamp.now()
                         };
                         
-                        // Add employee record
-                        const newEmployeeRef = employeesRef.doc();
+                        // Add employee record using userId as document ID
+                        const newEmployeeRef = employeesRef.doc(manager.id); // Use userId as document ID
                         transaction.set(newEmployeeRef, employeeData);
                         
                         // Update user record with references
                         const userRef = db.collection('users').doc(manager.id);
                         transaction.update(userRef, {
                             isEmployee: true,
-                            employeeRef: db.doc(`enterprise/${enterpriseId}/departments/${departmentId}/employees/${newEmployeeRef.id}`),
+                            employeeRef: db.doc(`enterprise/${enterpriseId}/departments/${departmentId}/employees/${manager.id}`), // Use userId in path
                             departmentRef: departmentRef,
                             enterpriseRef: db.doc(`enterprise/${enterpriseId}`),
                             updatedAt: admin.firestore.Timestamp.now()
@@ -398,7 +399,7 @@ exports.updateDepartment = async (req, res) => {
                         
                         // Add to response
                         response.managersAdded.push({
-                            id: newEmployeeRef.id,
+                            id: manager.id, // Document ID is now the userId
                             userId: manager.id,
                             name: manager.data.name || '',
                             surname: manager.data.surname || '',
@@ -1177,14 +1178,15 @@ exports.addEmployee = async (req, res) => {
             updatedAt: admin.firestore.Timestamp.now()
         };
         
-        // Add employee record
-        const newEmployeeRef = await employeesRef.add(employeeData);
-        const newEmployeeId = newEmployeeRef.id;
+        // Add employee record using userId as document ID
+        const newEmployeeRef = employeesRef.doc(actualUserId); // Use userId as document ID
+        await newEmployeeRef.set(employeeData);
+        const newEmployeeId = actualUserId; // Document ID is now the userId
         
         // Update user record with employee reference and other metadata
         const userUpdates = {
             isEmployee: true,
-            employeeRef: db.doc(`enterprise/${enterpriseId}/departments/${departmentId}/employees/${newEmployeeId}`),
+            employeeRef: db.doc(`enterprise/${enterpriseId}/departments/${departmentId}/employees/${actualUserId}`), // Use userId in path
             departmentRef: db.doc(`enterprise/${enterpriseId}/departments/${departmentId}`),
             enterpriseRef: db.doc(`enterprise/${enterpriseId}`),
             updatedAt: admin.firestore.Timestamp.now()

@@ -54,5 +54,7 @@ router.patch('/Users/:id/profile-image', upload.single('profileImage'), userCont
 router.patch('/Users/:id/company-logo', upload.single('companyLogo'), userController.updateCompanyLogo);
 router.patch('/Users/:id/color', userController.updateUserColor);
 router.patch('/Users/:id/upgrade', authenticateUser, userController.upgradeToPremium);
+router.patch('/deactivate', userController.deactivateUser);
+router.patch('/reactivate', userController.reactivateUser);
 
 module.exports = router;

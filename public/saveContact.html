@@ -1528,6 +1528,11 @@ END:VCARD`;
                 return imageUri;
             }
             
+            // If it's a base64 data URL, return as is
+            if (imageUri.startsWith('data:')) {
+                return imageUri;
+            }
+            
             // Otherwise, it's a local path, prepend the API base URL
             return `${apiBaseUrl}${imageUri}`;
         }
@@ -1552,6 +1557,17 @@ END:VCARD`;
                 userData = await response.json();
                 const apiBaseUrl = window.location.origin;
                 
+                // Debug logging for profile image
+                console.log('=== Profile Image Debug ===');
+                console.log('User data:', userData);
+                console.log('Profile image field:', userData.profileImage);
+                console.log('API base URL:', apiBaseUrl);
+                if (userData.profileImage) {
+                    const profileUrl = getImageUrl(userData.profileImage, apiBaseUrl);
+                    console.log('Generated profile URL:', profileUrl);
+                }
+                console.log('========================');
+                
                 // Update user information with styled elements
                 document.getElementById('userData').innerHTML = `
                     <h2 class="name">${userData.name} ${userData.surname}</h2>
@@ -1575,7 +1591,7 @@ END:VCARD`;
                 // 1. First, handle the company logo
                 const logoContainer = document.querySelector('.logo-container');
                 if (logoContainer) {
-                    // Clear everything inside except the profile-overlay
+                    // Store the profile overlay before clearing
                     const profileOverlay = logoContainer.querySelector('.profile-overlay');
                     const profileOverlayHtml = profileOverlay ? profileOverlay.outerHTML : '';
                     
@@ -1599,55 +1615,69 @@ END:VCARD`;
                     }
                 }
                 
-                // 2. Then, handle the profile image
-                const profileContainer = document.querySelector('.profile-container');
-                if (profileContainer) {
-                    if (userData.profileImage) {
+                // 2. Then, handle the profile image - FIXED LOGIC
+                setTimeout(() => {
+                    const profileContainer = document.querySelector('.profile-container');
+                    console.log('Profile container found:', !!profileContainer);
+                    
+                    if (profileContainer) {
+                        if (userData.profileImage) {
+                            const profileUrl = getImageUrl(userData.profileImage, apiBaseUrl);
+                            console.log('Profile image URL:', profileUrl);
+                            
+                            profileContainer.innerHTML = `
+                                <img class="profile-image" 
+                                    src="${profileUrl}" 
+                                    alt="${userData.name}'s profile" 
+                                    onload="console.log('Profile image loaded successfully')"
+                                    onerror="console.log('Profile image failed to load:', this.src); this.onerror=null; this.style.display='none'; this.insertAdjacentHTML('afterend', '<div style=\\'background-color: #e0e0e0; height: 100%; width: 100%; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 24px; color: #999;\\'>'+('${userData.name.charAt(0)}${userData.surname.charAt(0)}')+''+'</div>');">
+                            `;
+                        } else {
+                            console.log('No profile image found, using initials placeholder');
+                            // Set a default placeholder with initials
+                            profileContainer.innerHTML = `
+                                <div style="background-color: #e0e0e0; height: 100%; width: 100%; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 24px; color: #999;">
+                                    ${userData.name.charAt(0)}${userData.surname.charAt(0)}
+                                </div>
+                            `;
+                        }
+                    } else {
+                        console.error('Profile container not found after company logo handling');
+                        // Re-add profile overlay if it's missing
+                        const logoContainer = document.querySelector('.logo-container');
+                        if (logoContainer && !logoContainer.querySelector('.profile-overlay')) {
+                            logoContainer.insertAdjacentHTML('beforeend', `
+                                <div class="profile-overlay">
+                                    <div class="profile-container">
+                                        <div style="background-color: #e0e0e0; height: 100%; width: 100%; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 24px; color: #999;">
+                                            ${userData.name.charAt(0)}${userData.surname.charAt(0)}
+                                        </div>
+                                    </div>
+                                </div>
+                            `);
+                            console.log('Re-added missing profile overlay');
+                        }
+                    }
+                }, 100); // Small delay to ensure DOM is ready
+                
+                // Additional fallback check after a longer delay
+                setTimeout(() => {
+                    const profileContainer = document.querySelector('.profile-container');
+                    const profileImage = profileContainer?.querySelector('.profile-image');
+                    
+                    if (profileContainer && !profileImage && userData.profileImage) {
+                        console.log('Profile image not loaded, retrying...');
                         const profileUrl = getImageUrl(userData.profileImage, apiBaseUrl);
-                        console.log('Profile image URL:', profileUrl);
                         
                         profileContainer.innerHTML = `
                             <img class="profile-image" 
                                 src="${profileUrl}" 
                                 alt="${userData.name}'s profile" 
-                                onerror="this.onerror=null; this.style.display='none'; this.insertAdjacentHTML('afterend', '<div style=\\'background-color: #e0e0e0; height: 100%; width: 100%; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 24px; color: #999;\\'>'+('${userData.name.charAt(0)}${userData.surname.charAt(0)}')+''+'</div>');">
-                        `;
-                    } else {
-                        // Set a default placeholder with initials
-                        profileContainer.innerHTML = `
-                            <div style="background-color: #e0e0e0; height: 100%; width: 100%; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 24px; color: #999;">
-                                ${userData.name.charAt(0)}${userData.surname.charAt(0)}
-                            </div>
+                                onload="console.log('Profile image loaded successfully on retry')"
+                                onerror="console.log('Profile image failed to load on retry:', this.src); this.onerror=null; this.style.display='none'; this.insertAdjacentHTML('afterend', '<div style=\\'background-color: #e0e0e0; height: 100%; width: 100%; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 24px; color: #999;\\'>'+('${userData.name.charAt(0)}${userData.surname.charAt(0)}')+''+'</div>');">
                         `;
                     }
-                }
-                
-                // Add a check after a short delay to ensure images are still visible
-                setTimeout(() => {
-                    const profileOverlay = document.querySelector('.profile-overlay');
-                    const profileContainer = document.querySelector('.profile-container');
-                    
-                    if (!profileOverlay || !profileContainer) {
-                        console.error('Profile elements missing from DOM after timeout!');
-                        
-                        // Re-add profile overlay if it's missing
-                        if (!profileOverlay) {
-                            const logoContainer = document.querySelector('.logo-container');
-                            if (logoContainer && !logoContainer.querySelector('.profile-overlay')) {
-                                logoContainer.insertAdjacentHTML('beforeend', `
-                                    <div class="profile-overlay">
-                                        <div class="profile-container">
-                                            <div style="background-color: #e0e0e0; height: 100%; width: 100%; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 24px; color: #999;">
-                                                ${userData.name.charAt(0)}${userData.surname.charAt(0)}
-                                            </div>
-                                        </div>
-                                    </div>
-                                `);
-                                console.log('Re-added missing profile overlay');
-                            }
-                        }
-                    }
-                }, 1000);
+                }, 500);
             } catch (error) {
                 console.error('Error:', error);
                 document.getElementById('userData').innerHTML = '<p>Error loading contact details</p>';
@@ -1750,6 +1780,37 @@ END:VCARD`;
                 scanTracked = false;
                 console.log('🧹 Reset scan tracking flag (localStorage not accessible)');
             }
+        };
+
+        // Helper function to test profile image loading
+        window.testProfileImage = function() {
+            if (!userData) {
+                console.log('No user data available');
+                return;
+            }
+            
+            console.log('=== Profile Image Test ===');
+            console.log('User data:', userData);
+            console.log('Profile image:', userData.profileImage);
+            
+            if (userData.profileImage) {
+                const apiBaseUrl = window.location.origin;
+                const profileUrl = getImageUrl(userData.profileImage, apiBaseUrl);
+                console.log('Generated URL:', profileUrl);
+                
+                // Test if the image loads
+                const testImg = new Image();
+                testImg.onload = function() {
+                    console.log('✅ Profile image loads successfully');
+                };
+                testImg.onerror = function() {
+                    console.log('❌ Profile image failed to load');
+                };
+                testImg.src = profileUrl;
+            } else {
+                console.log('No profile image found in user data');
+            }
+            console.log('========================');
         };
 
         // Function to handle app download
