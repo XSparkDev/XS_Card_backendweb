@@ -105,6 +105,11 @@ app.get('/set-password', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'set-password.html'));
 });
 
+// Serve the password reset page
+app.get('/reset-password', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'reset-password.html'));
+});
+
 // Password setup endpoint - keep this in public routes
 app.post('/api/set-password', async (req, res) => {
   try {

@@ -63,6 +63,10 @@ const handleSingleUpload = (fieldName) => {
         if (fieldName === 'apk') {
           userId = 'system_apk_uploads';
           console.log('Using system userId for APK upload');
+        } else if (fieldName === 'companyLogo' && req.body.enterpriseId) {
+          // For template logos, create a special userId that includes 'template'
+          userId = `template_${req.body.enterpriseId}_${req.user?.uid || 'system'}`;
+          console.log('Using template userId for company logo upload:', userId);
         } else if (!userId) {
           return res.status(400).json({
             success: false,
@@ -133,6 +137,10 @@ const handleMultipleUploads = (fields) => {
         if (Object.keys(req.files).includes('apk')) {
           userId = 'system_apk_uploads';
           console.log('Using system userId for APK upload in multiple files');
+        } else if (Object.keys(req.files).includes('companyLogo') && req.body.enterpriseId) {
+          // For template logos, create a special userId that includes 'template'
+          userId = `template_${req.body.enterpriseId}_${req.user?.uid || 'system'}`;
+          console.log('Using template userId for company logo upload in multiple files:', userId);
         } else if (!userId) {
           return res.status(400).json({
             success: false,

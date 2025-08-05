@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateUser } = require('../middleware/auth');
+const { handleSingleUpload } = require('../middleware/fileUpload');
 const cardTemplateController = require('../controllers/cardTemplateController');
 
 // Apply authentication middleware to all routes
@@ -10,9 +11,9 @@ router.use(authenticateUser);
  * Template CRUD Routes
  */
 
-// Create a new template
+// Create a new template with logo upload
 // POST /api/templates
-router.post('/', cardTemplateController.createTemplate);
+router.post('/', handleSingleUpload('companyLogo'), cardTemplateController.createTemplate);
 
 // Get all templates for an enterprise
 // GET /api/templates/:enterpriseId
@@ -34,9 +35,9 @@ router.get('/template/:templateId', cardTemplateController.getTemplate);
 // GET /api/templates/template/:templateId/preview
 router.get('/template/:templateId/preview', cardTemplateController.previewTemplate);
 
-// Update a template
+// Update a template with logo upload
 // PUT /api/templates/:templateId
-router.put('/:templateId', cardTemplateController.updateTemplate);
+router.put('/:templateId', handleSingleUpload('companyLogo'), cardTemplateController.updateTemplate);
 
 // Delete a template (soft delete)
 // DELETE /api/templates/:templateId

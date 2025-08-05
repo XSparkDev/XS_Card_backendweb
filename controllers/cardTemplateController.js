@@ -124,6 +124,14 @@ exports.createTemplate = async (req, res) => {
             return sendError(res, 409, `A template with name "${name}" already exists for this ${scope}`);
         }
 
+        // Handle company logo upload - use Firebase Storage URL if available
+        let finalCompanyLogo = companyLogo;
+        if (req.firebaseStorageUrls && req.firebaseStorageUrls.companyLogo) {
+            finalCompanyLogo = req.firebaseStorageUrls.companyLogo;
+        } else if (req.file && req.file.firebaseUrl) {
+            finalCompanyLogo = req.file.firebaseUrl;
+        }
+
         // Create template data
         const templateData = {
             enterpriseId,
@@ -131,7 +139,7 @@ exports.createTemplate = async (req, res) => {
             name: name.trim(),
             description: description.trim(),
             colorScheme,
-            companyLogo,
+            companyLogo: finalCompanyLogo,
             createdBy: userId,
             createdByRole: permissionCheck.userRole,
             createdAt: admin.firestore.Timestamp.now(),
@@ -344,8 +352,15 @@ exports.updateTemplate = async (req, res) => {
             updates.colorScheme = colorScheme;
         }
 
+        // Handle company logo upload - use Firebase Storage URL if available
         if (companyLogo !== undefined) {
-            updates.companyLogo = companyLogo;
+            let finalCompanyLogo = companyLogo;
+            if (req.firebaseStorageUrls && req.firebaseStorageUrls.companyLogo) {
+                finalCompanyLogo = req.firebaseStorageUrls.companyLogo;
+            } else if (req.file && req.file.firebaseUrl) {
+                finalCompanyLogo = req.file.firebaseUrl;
+            }
+            updates.companyLogo = finalCompanyLogo;
         }
 
         if (isActive !== undefined) {
@@ -530,7 +545,7 @@ exports.getEffectiveTemplate = async (req, res) => {
             .where('enterpriseId', '==', enterpriseId)
             .where('departmentId', '==', departmentId)
             .where('isActive', '==', true)
-            // .orderBy('updatedAt', 'desc')  // Temporarily disabled for index
+            .orderBy('updatedAt', 'desc')
             .limit(1)
             .get();
 
@@ -553,7 +568,7 @@ exports.getEffectiveTemplate = async (req, res) => {
                 .where('enterpriseId', '==', enterpriseId)
                 .where('departmentId', '==', null)
                 .where('isActive', '==', true)
-                // .orderBy('updatedAt', 'desc')  // Temporarily disabled for index
+                .orderBy('updatedAt', 'desc')
                 .limit(1)
                 .get();
 
@@ -697,7 +712,7 @@ exports.getEffectiveTemplateForCardCreation = async (enterpriseId, departmentId)
             .where('enterpriseId', '==', enterpriseId)
             .where('departmentId', '==', departmentId)
             .where('isActive', '==', true)
-            // .orderBy('updatedAt', 'desc')  // Temporarily disabled for index
+            .orderBy('updatedAt', 'desc')
             .limit(1)
             .get();
 
@@ -718,7 +733,7 @@ exports.getEffectiveTemplateForCardCreation = async (enterpriseId, departmentId)
             .where('enterpriseId', '==', enterpriseId)
             .where('departmentId', '==', null)
             .where('isActive', '==', true)
-            // .orderBy('updatedAt', 'desc')  // Temporarily disabled for index
+            .orderBy('updatedAt', 'desc')
             .limit(1)
             .get();
 

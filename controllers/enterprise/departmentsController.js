@@ -1017,6 +1017,13 @@ exports.addEmployee = async (req, res) => {
                     // Get enterprise data for card creation
                     const enterpriseData = enterpriseDoc.data();
                     
+                    // ========================================
+                    // CARD CREATION WITH TEMPLATE SYSTEM
+                    // ========================================
+                    // Get effective template for this department (department overrides enterprise)
+                    const { getEffectiveTemplateForCardCreation } = require('../cardTemplateController');
+                    const effectiveTemplate = await getEffectiveTemplateForCardCreation(enterpriseId, departmentId);
+                    
                     // Create user data for Firestore (replicating addUser structure)
                     const newUserData = {
                         uid: userRecord.uid,
@@ -1027,7 +1034,7 @@ exports.addEmployee = async (req, res) => {
                         title: title || '',
                         profileImage: profileImage || '',
                         employeeId: employeeId || '',
-                        colorScheme: colorScheme || '#1B2B5B', // Use same default as addUser
+                        colorScheme: effectiveTemplate.colorScheme, // ✅ Use template color instead of hardcoded
                         plan: 'enterprise', // Default enterprise plan for all employees
                         createdAt: admin.firestore.Timestamp.now(),
                         updatedAt: admin.firestore.Timestamp.now(),
@@ -1043,17 +1050,7 @@ exports.addEmployee = async (req, res) => {
                     // ========================================
                     // CARD CREATION WITH TEMPLATE SYSTEM
                     // ========================================
-                    // Get effective template for this department (department overrides enterprise)
-                    const { getEffectiveTemplateForCardCreation } = require('../cardTemplateController');
-                    const effectiveTemplate = await getEffectiveTemplateForCardCreation(enterpriseId, departmentId);
-                    
-                    console.log(`Using template for employee card creation:`, {
-                        templateId: effectiveTemplate.templateId,
-                        templateName: effectiveTemplate.templateName,
-                        source: effectiveTemplate.source,
-                        colorScheme: effectiveTemplate.colorScheme,
-                        companyLogo: effectiveTemplate.companyLogo
-                    });
+                    // Template already retrieved above, reuse effectiveTemplate variable
                     
                     // Create card data with template values
                     const cardData = {

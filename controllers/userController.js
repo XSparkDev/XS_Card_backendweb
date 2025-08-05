@@ -5,6 +5,12 @@ const { sendMailWithStatus } = require('../public/Utils/emailService');
 require('dotenv').config();
 const { AUTH_ENDPOINTS, EMAIL_TEMPLATES, AUTH_CONSTANTS } = require('../constants/auth');
 const { formatDate } = require('../utils/dateFormatter');
+
+// Helper function to get base URL for email links
+const getBaseUrl = (req) => {
+    // Use configured base URL if available, otherwise fall back to request info
+    return config.BASE_URL || `${req.protocol}://${req.get('host')}`;
+};
 const { logActivity, ACTIONS, RESOURCES } = require('../utils/logger');
 
 const sendVerificationEmail = async (userData, req) => {
@@ -17,7 +23,7 @@ const sendVerificationEmail = async (userData, req) => {
     }
 
     const verificationToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
-    const verificationLink = `${req.protocol}://${req.get('host')}/verify-email?token=${verificationToken}&uid=${userData.uid}`;
+    const verificationLink = `${getBaseUrl(req)}/verify-email?token=${verificationToken}&uid=${userData.uid}`;
     
     await userData.ref.update({ 
         verificationToken,
@@ -144,7 +150,7 @@ exports.addUser = async (req, res) => {
         await db.collection('cards').doc(userRecord.uid).set(cardData);
 
         // Send verification email
-        const verificationLink = `${req.protocol}://${req.get('host')}/verify-email?token=${verificationToken}&uid=${userRecord.uid}`;
+        const verificationLink = `${getBaseUrl(req)}/verify-email?token=${verificationToken}&uid=${userRecord.uid}`;
         
         await sendMailWithStatus({
             to: email,
@@ -1025,7 +1031,7 @@ exports.forgotPassword = async (req, res) => {
         });
 
         // Send reset email - handle cases where name might be undefined
-        const resetLink = `${req.protocol}://${req.get('host')}/reset-password?token=${resetToken}&uid=${userId}`;
+        const resetLink = `${getBaseUrl(req)}/reset-password?token=${resetToken}&uid=${userId}`;
         const userName = userData.name || userData.surname || 'User';
         
         await sendMailWithStatus({

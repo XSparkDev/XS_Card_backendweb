@@ -45,6 +45,12 @@ const uploadFile = async (fileBuffer, originalName, userId, fileType) => {
       } else if (fileType === 'bannerImage' || fileType === 'eventImages') {
         // Store event-related images in events folder
         filePath = `events/${userId}/${filename}`;
+      } else if (fileType === 'companyLogo' && userId.includes('template')) {
+        // Store template logos in templates folder
+        filePath = `templates/${userId}/${filename}`;
+      } else if (fileType === 'companyLogo') {
+        // Store regular company logos in profiles folder
+        filePath = `profiles/${userId}/${filename}`;
       } else {
         // Default to user-specific profile folders
         filePath = `profiles/${userId}/${filename}`;
@@ -88,6 +94,8 @@ const uploadFile = async (fileBuffer, originalName, userId, fileType) => {
         uploadsDir = path.join(__dirname, '..', 'public', 'downloads');
       } else if (fileType === 'bannerImage' || fileType === 'eventImages') {
         uploadsDir = path.join(__dirname, '..', 'public', 'events');
+      } else if (fileType === 'companyLogo' && userId.includes('template')) {
+        uploadsDir = path.join(__dirname, '..', 'public', 'templates');
       } else {
         uploadsDir = path.join(__dirname, '..', 'public', 'profiles');
       }
@@ -123,6 +131,8 @@ const uploadFile = async (fileBuffer, originalName, userId, fileType) => {
         relativePath = `/downloads/${filename}`;
       } else if (fileType === 'bannerImage' || fileType === 'eventImages') {
         relativePath = `/events/${userId}/${filename}`;
+      } else if (fileType === 'companyLogo' && userId.includes('template')) {
+        relativePath = `/templates/${userId}/${filename}`;
       } else {
         relativePath = `/profiles/${userId}/${filename}`;
       }
@@ -144,6 +154,8 @@ const uploadFile = async (fileBuffer, originalName, userId, fileType) => {
           uploadsDir = path.join(__dirname, '..', 'public', 'downloads');
         } else if (fileType === 'bannerImage' || fileType === 'eventImages') {
           uploadsDir = path.join(__dirname, '..', 'public', 'events');
+        } else if (fileType === 'companyLogo' && userId.includes('template')) {
+          uploadsDir = path.join(__dirname, '..', 'public', 'templates');
         } else {
           uploadsDir = path.join(__dirname, '..', 'public', 'profiles');
         }
@@ -179,6 +191,8 @@ const uploadFile = async (fileBuffer, originalName, userId, fileType) => {
           relativePath = `/downloads/${filename}`;
         } else if (fileType === 'bannerImage' || fileType === 'eventImages') {
           relativePath = `/events/${userId}/${filename}`;
+        } else if (fileType === 'companyLogo' && userId.includes('template')) {
+          relativePath = `/templates/${userId}/${filename}`;
         } else {
           relativePath = `/profiles/${userId}/${filename}`;
         }
