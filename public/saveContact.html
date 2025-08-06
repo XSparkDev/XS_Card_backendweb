@@ -806,6 +806,23 @@
             transform: scale(0.98);
         }
 
+        /* Loading state styles */
+        .submit-btn:disabled,
+        .app-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        .submit-btn:disabled .material-icons,
+        .app-btn:disabled .material-icons {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
         .app-description-text {
             color: #777;
             font-size: 13px;
@@ -1312,14 +1329,15 @@
         }
 
         // Function to save contact and show form
-        function saveContactAndShowForm(event) {
+        async function saveContactAndShowForm(event) {
             if (!userData) {
                 alert('No contact information available');
                 return;
             }
             
-            // Create and download vCard immediately
-            const vCardData = `BEGIN:VCARD
+            try {
+                // Create and download vCard immediately
+                const vCardData = `BEGIN:VCARD
 VERSION:3.0
 FN:${userData.name} ${userData.surname}
 EMAIL:${userData.email}
@@ -1328,31 +1346,18 @@ ORG:${userData.company}
 TITLE:${userData.occupation}
 END:VCARD`;
 
-            const blob = new Blob([vCardData.trim()], { type: 'text/vcard' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = `${userData.name}_${userData.surname}.vcf`;
-            link.click();
-            
-            // Track the scan after successful vCard download
-            trackScan('save');
-            
-            // Show brief success feedback on button
-            const btn = event.target.closest('button');
-            const originalText = btn.innerHTML;
-            const originalColor = btn.style.backgroundColor;
-            btn.innerHTML = '<span class="material-icons">done</span> Saved!';
-            btn.style.backgroundColor = '#4CAF50';
-            
-            // Get both containers for flip-flop effect
-            const saveContainer = btn.closest('.form-container');
-            const exchangeForm = document.getElementById('exchangeForm');
-            
-            // After brief success feedback, start the flip-flop animation
-            setTimeout(() => {
-                // Reset button appearance first
-                btn.innerHTML = originalText;
-                btn.style.backgroundColor = originalColor;
+                const blob = new Blob([vCardData.trim()], { type: 'text/vcard' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `${userData.name}_${userData.surname}.vcf`;
+                link.click();
+                
+                // Track the scan after successful vCard download
+                trackScan('save');
+                
+                // Get both containers for flip-flop effect
+                const saveContainer = event.target.closest('.form-container');
+                const exchangeForm = document.getElementById('exchangeForm');
                 
                 // Show modal overlay
                 const modalOverlay = document.getElementById('modalOverlay');
@@ -1371,7 +1376,10 @@ END:VCARD`;
                         document.getElementById('scannerName').focus();
                     }, 300);
                 }, 200);
-            }, 1000);
+            } catch (error) {
+                console.error('Error saving contact:', error);
+                alert('Error saving contact. Please try again.');
+            }
         }
         
         // Function to skip/close the form with slide animation and bring back save button
@@ -1409,18 +1417,41 @@ END:VCARD`;
                 return;
             }
 
-            // Save contact to database (mutual exchange)
-            const savedToDb = await saveContactToDatabase();
-            if (!savedToDb) return;
+            // Get the button and show loading state
+            const btn = document.querySelector('#exchangeForm .submit-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span class="material-icons">sync</span> Exchanging contacts...';
+            btn.disabled = true;
+            
+            try {
+                // Save contact to database (mutual exchange)
+                const savedToDb = await saveContactToDatabase();
+                if (!savedToDb) {
+                    // Reset button on error
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                    return;
+                }
 
-            // Track the exchange scan after successful database save
+                            // Track the exchange scan after successful database save
             trackScan('exchange');
+
+            // Reset button state after successful exchange
+            btn.innerHTML = originalText;
+            btn.disabled = false;
 
             // Hide modal overlay and show enhanced success overlay
             const modalOverlay = document.getElementById('modalOverlay');
             modalOverlay.classList.remove('active');
             
             showEnhancedSuccessOverlay();
+            } catch (error) {
+                console.error('Error exchanging contacts:', error);
+                // Reset button on error
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                alert('Error exchanging contacts. Please try again.');
+            }
         }
 
         // Enhanced success overlay function
@@ -1698,9 +1729,16 @@ END:VCARD`;
                 return false;
             }
 
+            // Debug logging to see what's happening with userData
+            console.log('=== Contact Save Debug ===');
+            console.log('URL userId:', userId);
+            console.log('userData:', userData);
+            console.log('userData.id:', userData?.id);
+            console.log('========================');
+
             // Use EXACTLY the same payload structure that works in Postman
             const payload = {
-                userId: userData.id,
+                userId: userId, // Use the userId from URL parameters directly
                 contactInfo: {
                     name: scannerName,
                     surname: scannerSurname,
@@ -1814,47 +1852,68 @@ END:VCARD`;
         };
 
         // Function to handle app download
-        function handleAppDownload(event) {
-            const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        async function handleAppDownload(event) {
+            // Get the button and show loading state
+            const btn = event.target.closest('button');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span class="material-icons">sync</span> Downloading...';
+            btn.disabled = true;
             
-            if (iOS) {
-                // For iOS users, open TestFlight
-                window.open('https://apps.apple.com/app/testflight/id899247664', '_blank');
+            try {
+                const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
                 
-                // Send email request for TestFlight invite
-                try {
-                    const emailData = {
-                        name: 'iOS User',
-                        email: 'ios-invite-request@xscard.temp',
-                        message: `An iOS user has requested access to the XS Card TestFlight beta. They clicked the app download button from a contact save page.
-                        
+                if (iOS) {
+                    // For iOS users, open TestFlight
+                    window.open('https://apps.apple.com/app/testflight/id899247664', '_blank');
+                    
+                    // Send email request for TestFlight invite
+                    try {
+                        const emailData = {
+                            name: 'iOS User',
+                            email: 'ios-invite-request@xscard.temp',
+                            message: `An iOS user has requested access to the XS Card TestFlight beta. They clicked the app download button from a contact save page.
+                            
 Contact Details from scan:
 - Name: ${userData ? userData.name + ' ' + userData.surname : 'Unknown'}
 - Email: ${userData ? userData.email : 'Unknown'}
 - Company: ${userData ? userData.company : 'Unknown'}
 
 Please send them a TestFlight invite.`,
-                        to: 'xscard@xspark.co.za'
-                    };
+                            to: 'xscard@xspark.co.za'
+                        };
 
-                    fetch('/submit-query', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(emailData)
-                    });
+                        await fetch('/submit-query', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(emailData)
+                        });
+                        
+                        console.log('TestFlight invite request sent');
+                    } catch (error) {
+                        console.error('Error sending TestFlight request:', error);
+                    }
+                } else {
+                    // For Android users, trigger direct APK download
+                    console.log('Initiating APK download for Android user');
                     
-                    console.log('TestFlight invite request sent');
-                } catch (error) {
-                    console.error('Error sending TestFlight request:', error);
+                    // Trigger direct download
+                    window.location.href = '/download-apk';
                 }
-            } else {
-                // For Android users, trigger direct APK download
-                console.log('Initiating APK download for Android user');
                 
-                // Trigger direct download without changing button appearance
-                window.location.href = '/download-apk';
+                // Reset button after a short delay to show completion
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }, 2000);
+                
+            } catch (error) {
+                console.error('Error downloading app:', error);
+                // Reset button on error
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                alert('Error downloading app. Please try again.');
             }
         }
 
