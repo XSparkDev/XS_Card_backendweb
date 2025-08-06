@@ -84,8 +84,7 @@ app.use('/api', locationRoutes);
 // 2. Ensure NODE_ENV !== 'production'
 // 3. Remove before deploying to production
 
-// Development-only test endpoints (commented out for production)
-/*
+// Development-only test endpoints (temporarily enabled for testing)
 if (process.env.NODE_ENV !== 'production') {
   const testLocationRoutes = require('./tests/test-location');
   app.use('/test', testLocationRoutes);
@@ -98,7 +97,6 @@ if (process.env.NODE_ENV !== 'production') {
     // Test endpoint implementation...
   });
 }
-*/
 
 // Serve the password setup page
 app.get('/set-password', (req, res) => {
