@@ -56,5 +56,7 @@ router.patch('/Users/:id/color', userController.updateUserColor);
 router.patch('/Users/:id/upgrade', authenticateUser, userController.upgradeToPremium);
 router.patch('/deactivate', userController.deactivateUser);
 router.patch('/reactivate', userController.reactivateUser);
+router.patch('/bulk-deactivate', userController.bulkDeactivateUsers);
+router.patch('/bulk-reactivate', userController.bulkReactivateUsers);
 
 module.exports = router;

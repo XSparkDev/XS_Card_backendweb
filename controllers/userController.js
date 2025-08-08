@@ -1830,3 +1830,488 @@ exports.reactivateUser = async (req, res) => {
         });
     }
 };
+
+// Bulk Deactivate Users
+exports.bulkDeactivateUsers = async (req, res) => {
+    try {
+        const requestingUserId = req.user.uid;
+        const { userIds } = req.body;
+
+        console.log(`[BulkDeactivateUsers] 🔍 Starting bulk deactivation`);
+        console.log(`[BulkDeactivateUsers] 📝 Target users: ${userIds?.length || 0}`);
+        console.log(`[BulkDeactivateUsers] 👤 Requesting user: ${requestingUserId}`);
+
+        if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'User IDs array is required and must not be empty'
+            });
+        }
+
+        // Remove duplicates and validate
+        const uniqueUserIds = [...new Set(userIds)];
+        if (uniqueUserIds.length !== userIds.length) {
+            console.log(`[BulkDeactivateUsers] ⚠️  Removed ${userIds.length - uniqueUserIds.length} duplicate user IDs`);
+        }
+
+        // Get requesting user data for permission checks
+        const requestingUserRef = db.collection('users').doc(requestingUserId);
+        const requestingUserDoc = await requestingUserRef.get();
+        
+        if (!requestingUserDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'Requesting user not found'
+            });
+        }
+
+        const requestingUserData = requestingUserDoc.data();
+        let requestingUserEnterpriseId = null;
+        let isAdmin = false;
+
+        // Check if requesting user is an admin
+        if (requestingUserData.enterpriseRef) {
+            requestingUserEnterpriseId = requestingUserData.enterpriseRef.id;
+            
+            // Find the requesting user in the enterprise employees subcollection
+            const departmentsSnapshot = await db.collection('enterprise')
+                .doc(requestingUserEnterpriseId)
+                .collection('departments')
+                .get();
+
+            for (const deptDoc of departmentsSnapshot.docs) {
+                const employeesSnapshot = await deptDoc.ref.collection('employees')
+                    .where('userId', '==', db.doc(`users/${requestingUserId}`))
+                    .get();
+
+                if (!employeesSnapshot.empty) {
+                    const employeeData = employeesSnapshot.docs[0].data();
+                    if (employeeData.role === 'admin') {
+                        isAdmin = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        console.log(`[BulkDeactivateUsers] 🔐 Admin status: ${isAdmin}`);
+        console.log(`[BulkDeactivateUsers] 🏢 Enterprise ID: ${requestingUserEnterpriseId}`);
+
+        // Process users in batches
+        const batchSize = 10; // Process 10 users at a time
+        const results = {
+            successful: [],
+            failed: [],
+            skipped: [],
+            summary: {
+                total: uniqueUserIds.length,
+                successful: 0,
+                failed: 0,
+                skipped: 0
+            }
+        };
+
+        console.log(`[BulkDeactivateUsers] 🔄 Processing ${uniqueUserIds.length} users in batches of ${batchSize}`);
+
+        for (let i = 0; i < uniqueUserIds.length; i += batchSize) {
+            const batch = uniqueUserIds.slice(i, i + batchSize);
+            console.log(`[BulkDeactivateUsers] 📦 Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(uniqueUserIds.length / batchSize)}`);
+
+            // Process batch concurrently
+            const batchPromises = batch.map(async (userId) => {
+                try {
+                    console.log(`[BulkDeactivateUsers] 👤 Processing user: ${userId}`);
+
+                    // Check if user exists
+                    const userRef = db.collection('users').doc(userId);
+                    const userDoc = await userRef.get();
+
+                    if (!userDoc.exists) {
+                        console.log(`[BulkDeactivateUsers] ❌ User not found: ${userId}`);
+                        return {
+                            userId,
+                            status: 'failed',
+                            error: 'User not found'
+                        };
+                    }
+
+                    const userData = userDoc.data();
+                    const isSelfOperation = userId === requestingUserId;
+
+                    // Permission checks
+                    if (!isSelfOperation) {
+                        if (!isAdmin) {
+                            console.log(`[BulkDeactivateUsers] ❌ Unauthorized: User ${requestingUserId} is not an admin`);
+                            return {
+                                userId,
+                                status: 'failed',
+                                error: 'Unauthorized. Only admins can deactivate other users.'
+                            };
+                        }
+
+                        // Check if user belongs to the same enterprise
+                        const targetUserEnterpriseId = userData.enterpriseRef?.id;
+                        if (requestingUserEnterpriseId !== targetUserEnterpriseId) {
+                            console.log(`[BulkDeactivateUsers] ❌ Unauthorized: User ${userId} belongs to different enterprise`);
+                            return {
+                                userId,
+                                status: 'failed',
+                                error: 'Unauthorized. You can only deactivate users in your enterprise.'
+                            };
+                        }
+                    }
+
+                    // Update user document
+                    await userRef.update({
+                        active: false,
+                        deactivatedAt: admin.firestore.Timestamp.now(),
+                        updatedAt: admin.firestore.Timestamp.now()
+                    });
+
+                    // Update employee document if user is an enterprise employee
+                    const employeeUpdateResult = await updateEmployeeActiveStatus(userId, false, 'deactivation');
+
+                    console.log(`[BulkDeactivateUsers] ✅ Successfully deactivated user: ${userId}`);
+
+                    return {
+                        userId,
+                        status: 'successful',
+                        data: {
+                            active: false,
+                            deactivatedAt: new Date().toISOString(),
+                            operationType: isSelfOperation ? 'self_deactivation' : 'admin_deactivation',
+                            employeeUpdated: !employeeUpdateResult?.skipped,
+                            employeeRef: employeeUpdateResult?.employeeRef || null
+                        }
+                    };
+
+                } catch (error) {
+                    console.error(`[BulkDeactivateUsers] ❌ Error processing user ${userId}:`, error);
+                    return {
+                        userId,
+                        status: 'failed',
+                        error: error.message
+                    };
+                }
+            });
+
+            // Wait for batch to complete
+            const batchResults = await Promise.all(batchPromises);
+
+            // Categorize results
+            batchResults.forEach(result => {
+                if (result.status === 'successful') {
+                    results.successful.push(result);
+                    results.summary.successful++;
+                } else {
+                    results.failed.push(result);
+                    results.summary.failed++;
+                }
+            });
+
+            // Small delay between batches to prevent overwhelming the database
+            if (i + batchSize < uniqueUserIds.length) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+
+        console.log(`[BulkDeactivateUsers] ✅ Bulk deactivation completed`);
+        console.log(`[BulkDeactivateUsers] 📊 Summary:`, results.summary);
+
+        // Log bulk operation
+        await logActivity({
+            action: ACTIONS.UPDATE,
+            resource: RESOURCES.USER,
+            userId: requestingUserId,
+            resourceId: 'bulk_operation',
+            details: {
+                operationType: 'bulk_deactivation',
+                totalUsers: results.summary.total,
+                successfulCount: results.summary.successful,
+                failedCount: results.summary.failed,
+                skippedCount: results.summary.skipped,
+                targetUserIds: uniqueUserIds,
+                requestingUserEnterpriseId: requestingUserEnterpriseId,
+                isAdminOperation: isAdmin,
+                batchSize: batchSize,
+                processingTime: Date.now()
+            }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: `Bulk deactivation completed. ${results.summary.successful} successful, ${results.summary.failed} failed.`,
+            data: {
+                summary: results.summary,
+                successful: results.successful,
+                failed: results.failed,
+                skipped: results.skipped
+            }
+        });
+
+    } catch (error) {
+        console.error('[BulkDeactivateUsers] ❌ Error:', error);
+        
+        // Log error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.USER,
+            userId: req.user?.uid || 'unknown',
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'bulk_deactivate_users',
+                targetUserIds: req.body?.userIds || []
+            }
+        });
+        
+        res.status(500).json({
+            success: false,
+            message: 'Failed to perform bulk deactivation',
+            error: error.message
+        });
+    }
+};
+
+// Bulk Reactivate Users
+exports.bulkReactivateUsers = async (req, res) => {
+    try {
+        const requestingUserId = req.user.uid;
+        const { userIds } = req.body;
+
+        console.log(`[BulkReactivateUsers] 🔍 Starting bulk reactivation`);
+        console.log(`[BulkReactivateUsers] 📝 Target users: ${userIds?.length || 0}`);
+        console.log(`[BulkReactivateUsers] 👤 Requesting user: ${requestingUserId}`);
+
+        if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'User IDs array is required and must not be empty'
+            });
+        }
+
+        // Remove duplicates and validate
+        const uniqueUserIds = [...new Set(userIds)];
+        if (uniqueUserIds.length !== userIds.length) {
+            console.log(`[BulkReactivateUsers] ⚠️  Removed ${userIds.length - uniqueUserIds.length} duplicate user IDs`);
+        }
+
+        // Get requesting user data for permission checks
+        const requestingUserRef = db.collection('users').doc(requestingUserId);
+        const requestingUserDoc = await requestingUserRef.get();
+        
+        if (!requestingUserDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'Requesting user not found'
+            });
+        }
+
+        const requestingUserData = requestingUserDoc.data();
+        let requestingUserEnterpriseId = null;
+        let isAdmin = false;
+
+        // Check if requesting user is an admin
+        if (requestingUserData.enterpriseRef) {
+            requestingUserEnterpriseId = requestingUserData.enterpriseRef.id;
+            
+            // Find the requesting user in the enterprise employees subcollection
+            const departmentsSnapshot = await db.collection('enterprise')
+                .doc(requestingUserEnterpriseId)
+                .collection('departments')
+                .get();
+
+            for (const deptDoc of departmentsSnapshot.docs) {
+                const employeesSnapshot = await deptDoc.ref.collection('employees')
+                    .where('userId', '==', db.doc(`users/${requestingUserId}`))
+                    .get();
+
+                if (!employeesSnapshot.empty) {
+                    const employeeData = employeesSnapshot.docs[0].data();
+                    if (employeeData.role === 'admin') {
+                        isAdmin = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        console.log(`[BulkReactivateUsers] 🔐 Admin status: ${isAdmin}`);
+        console.log(`[BulkReactivateUsers] 🏢 Enterprise ID: ${requestingUserEnterpriseId}`);
+
+        // Process users in batches
+        const batchSize = 10; // Process 10 users at a time
+        const results = {
+            successful: [],
+            failed: [],
+            skipped: [],
+            summary: {
+                total: uniqueUserIds.length,
+                successful: 0,
+                failed: 0,
+                skipped: 0
+            }
+        };
+
+        console.log(`[BulkReactivateUsers] 🔄 Processing ${uniqueUserIds.length} users in batches of ${batchSize}`);
+
+        for (let i = 0; i < uniqueUserIds.length; i += batchSize) {
+            const batch = uniqueUserIds.slice(i, i + batchSize);
+            console.log(`[BulkReactivateUsers] 📦 Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(uniqueUserIds.length / batchSize)}`);
+
+            // Process batch concurrently
+            const batchPromises = batch.map(async (userId) => {
+                try {
+                    console.log(`[BulkReactivateUsers] 👤 Processing user: ${userId}`);
+
+                    // Check if user exists
+                    const userRef = db.collection('users').doc(userId);
+                    const userDoc = await userRef.get();
+
+                    if (!userDoc.exists) {
+                        console.log(`[BulkReactivateUsers] ❌ User not found: ${userId}`);
+                        return {
+                            userId,
+                            status: 'failed',
+                            error: 'User not found'
+                        };
+                    }
+
+                    const userData = userDoc.data();
+                    const isSelfOperation = userId === requestingUserId;
+
+                    // Permission checks
+                    if (!isSelfOperation) {
+                        if (!isAdmin) {
+                            console.log(`[BulkReactivateUsers] ❌ Unauthorized: User ${requestingUserId} is not an admin`);
+                            return {
+                                userId,
+                                status: 'failed',
+                                error: 'Unauthorized. Only admins can reactivate other users.'
+                            };
+                        }
+
+                        // Check if user belongs to the same enterprise
+                        const targetUserEnterpriseId = userData.enterpriseRef?.id;
+                        if (requestingUserEnterpriseId !== targetUserEnterpriseId) {
+                            console.log(`[BulkReactivateUsers] ❌ Unauthorized: User ${userId} belongs to different enterprise`);
+                            return {
+                                userId,
+                                status: 'failed',
+                                error: 'Unauthorized. You can only reactivate users in your enterprise.'
+                            };
+                        }
+                    }
+
+                    // Update user document
+                    await userRef.update({
+                        active: true,
+                        reactivatedAt: admin.firestore.Timestamp.now(),
+                        updatedAt: admin.firestore.Timestamp.now(),
+                        deactivatedAt: admin.firestore.FieldValue.delete() // Remove deactivation timestamp
+                    });
+
+                    // Update employee document if user is an enterprise employee
+                    const employeeUpdateResult = await updateEmployeeActiveStatus(userId, true, 'reactivation');
+
+                    console.log(`[BulkReactivateUsers] ✅ Successfully reactivated user: ${userId}`);
+
+                    return {
+                        userId,
+                        status: 'successful',
+                        data: {
+                            active: true,
+                            reactivatedAt: new Date().toISOString(),
+                            operationType: isSelfOperation ? 'self_reactivation' : 'admin_reactivation',
+                            employeeUpdated: !employeeUpdateResult?.skipped,
+                            employeeRef: employeeUpdateResult?.employeeRef || null
+                        }
+                    };
+
+                } catch (error) {
+                    console.error(`[BulkReactivateUsers] ❌ Error processing user ${userId}:`, error);
+                    return {
+                        userId,
+                        status: 'failed',
+                        error: error.message
+                    };
+                }
+            });
+
+            // Wait for batch to complete
+            const batchResults = await Promise.all(batchPromises);
+
+            // Categorize results
+            batchResults.forEach(result => {
+                if (result.status === 'successful') {
+                    results.successful.push(result);
+                    results.summary.successful++;
+                } else {
+                    results.failed.push(result);
+                    results.summary.failed++;
+                }
+            });
+
+            // Small delay between batches to prevent overwhelming the database
+            if (i + batchSize < uniqueUserIds.length) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+
+        console.log(`[BulkReactivateUsers] ✅ Bulk reactivation completed`);
+        console.log(`[BulkReactivateUsers] 📊 Summary:`, results.summary);
+
+        // Log bulk operation
+        await logActivity({
+            action: ACTIONS.UPDATE,
+            resource: RESOURCES.USER,
+            userId: requestingUserId,
+            resourceId: 'bulk_operation',
+            details: {
+                operationType: 'bulk_reactivation',
+                totalUsers: results.summary.total,
+                successfulCount: results.summary.successful,
+                failedCount: results.summary.failed,
+                skippedCount: results.summary.skipped,
+                targetUserIds: uniqueUserIds,
+                requestingUserEnterpriseId: requestingUserEnterpriseId,
+                isAdminOperation: isAdmin,
+                batchSize: batchSize,
+                processingTime: Date.now()
+            }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: `Bulk reactivation completed. ${results.summary.successful} successful, ${results.summary.failed} failed.`,
+            data: {
+                summary: results.summary,
+                successful: results.successful,
+                failed: results.failed,
+                skipped: results.skipped
+            }
+        });
+
+    } catch (error) {
+        console.error('[BulkReactivateUsers] ❌ Error:', error);
+        
+        // Log error
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.USER,
+            userId: req.user?.uid || 'unknown',
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'bulk_reactivate_users',
+                targetUserIds: req.body?.userIds || []
+            }
+        });
+        
+        res.status(500).json({
+            success: false,
+            message: 'Failed to perform bulk reactivation',
+            error: error.message
+        });
+    }
+};

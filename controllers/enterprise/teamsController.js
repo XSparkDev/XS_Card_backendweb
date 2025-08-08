@@ -288,7 +288,7 @@ exports.updateTeam = async (req, res) => {
         
         // Validate and update leader if provided
         if (leaderId !== undefined) {
-            if (leaderId === null) {
+            if (leaderId === null || leaderId === "") {
                 // Remove leader
                 updateData.leaderId = null;
                 updateData.leaderRef = null;
@@ -404,7 +404,7 @@ exports.patchTeam = async (req, res) => {
         
         // Handle leader change with validation
         if (leaderId !== undefined) {
-            if (leaderId === null) {
+            if (leaderId === null || leaderId === "") {
                 // Remove leader
                 updateData.leaderId = null;
                 updateData.leaderRef = null;
