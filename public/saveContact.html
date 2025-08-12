@@ -1241,16 +1241,17 @@
                 return;
             }
 
-            if (!userData || !userData.id) {
-                console.warn('Cannot track scan: user data not available');
-                return;
-            }
-
+            // Use userId from URL parameters instead of userData.id
             const urlParams = new URLSearchParams(window.location.search);
             const cardIndex = parseInt(urlParams.get('cardIndex')) || 0;
 
+            if (!userId) {
+                console.warn('Cannot track scan: userId not available from URL');
+                return;
+            }
+
             // Check if this scan was already tracked recently
-            const storageKey = `xscard_scan_${userData.id}_${cardIndex}`;
+            const storageKey = `xscard_scan_${userId}_${cardIndex}`;
             let lastScan = null;
             
             try {
@@ -1282,10 +1283,10 @@
             }
 
             try {
-                console.log(`Tracking ${scanType} scan for user ${userData.id}, card ${cardIndex}`);
+                console.log(`Tracking ${scanType} scan for user ${userId}, card ${cardIndex}`);
                 
                 const trackingData = {
-                    userId: userData.id,
+                    userId: userId,
                     cardIndex: cardIndex,
                     scanType: scanType,
                     sessionId: sessionId,
