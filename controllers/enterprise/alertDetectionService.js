@@ -542,8 +542,8 @@ async function checkExistingAlert(enterpriseId, alertType, userId, timeWindowMs,
 exports.initializeAlertDetection = () => {
   console.log('🚀 [AlertDetection] Initializing security alert detection service...');
   
-  // Process logs every 5 minutes
-  const PROCESS_INTERVAL = 5 * 60 * 1000; // 5 minutes
+  // Process logs every 12 hours
+  const PROCESS_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
   
   setInterval(() => {
     exports.processActivityLogsForAlerts();

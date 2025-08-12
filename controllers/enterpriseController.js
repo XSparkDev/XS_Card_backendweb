@@ -811,9 +811,9 @@ exports.sendEnterpriseEmail = async (req, res) => {
       }
     };
 
-    // Send email using enhanced email service
+    // Send email using enhanced email service with signature support
     const { sendMailWithStatus } = require('../public/Utils/emailService');
-    const emailResult = await sendMailWithStatus(mailOptions);
+    const emailResult = await sendMailWithStatus(mailOptions, userId);
 
     if (!emailResult.success) {
       return res.status(500).json({

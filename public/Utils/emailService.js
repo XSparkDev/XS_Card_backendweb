@@ -60,8 +60,52 @@ verifyTransporter().then(isVerified => {
   }
 });
 
+/**
+ * Get user's email signature and apply it to email content
+ */
+const getUserEmailSignature = async (userId) => {
+  try {
+    const { db } = require('../../firebase');
+    const userDoc = await db.collection('users').doc(userId).get();
+    
+    if (!userDoc.exists) {
+      return null;
+    }
+    
+    const userData = userDoc.data();
+    const signature = userData.emailSignature;
+    
+    if (!signature || !signature.isActive) {
+      return null;
+    }
+    
+    return signature.signatureHtml || signature.signatureText;
+  } catch (error) {
+    console.error('Error getting user email signature:', error);
+    return null;
+  }
+};
+
+/**
+ * Apply email signature to email content
+ */
+const applyEmailSignature = (emailContent, signature) => {
+  if (!signature) {
+    return emailContent;
+  }
+  
+  // If content is HTML, add signature as HTML
+  if (emailContent.includes('<html>') || emailContent.includes('<div>') || emailContent.includes('<p>')) {
+    return `${emailContent}<br><br>${signature}`;
+  }
+  
+  // If content is plain text, convert signature to text
+  const textSignature = signature.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
+  return `${emailContent}\n\n${textSignature}`;
+};
+
 // Enhance the transporter.sendMail with status tracking, retries and better error handling
-const sendMailWithStatus = async (mailOptions) => {
+const sendMailWithStatus = async (mailOptions, userId = null) => {
   try {
     // Make sure from address is properly set
     if (!mailOptions.from || typeof mailOptions.from === 'string') {
@@ -69,6 +113,19 @@ const sendMailWithStatus = async (mailOptions) => {
         name: mailOptions.from?.name || process.env.EMAIL_FROM_NAME || 'XS Card',
         address: mailOptions.from?.address || process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER
       };
+    }
+    
+    // Apply email signature if userId is provided
+    if (userId) {
+      const signature = await getUserEmailSignature(userId);
+      if (signature) {
+        if (mailOptions.html) {
+          mailOptions.html = applyEmailSignature(mailOptions.html, signature);
+        } else if (mailOptions.text) {
+          mailOptions.text = applyEmailSignature(mailOptions.text, signature);
+        }
+        console.log('Email signature applied for user:', userId);
+      }
     }
     
     console.log('Sending email to:', mailOptions.to);

@@ -41,6 +41,7 @@ const enterpriseRoutes = require('./routes/enterpriseRoutes');
 const locationRoutes = require('./routes/locationRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const cardTemplateRoutes = require('./routes/cardTemplateRoutes');
+const emailSignatureRoutes = require('./routes/emailSignatureRoutes');
 
 // Location tracking middleware
 const { enrichContactWithIp, processContactLocation, getClientIp } = require('./contactMiddleware');
@@ -74,6 +75,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/', paymentRoutes);
 app.use('/', subscriptionRoutes);
+
+// Email signature routes (public endpoints)
+app.use('/api', emailSignatureRoutes);
 
 // Location analytics routes
 app.use('/api', locationRoutes);
@@ -539,6 +543,22 @@ app.get('/public/cards/:id', async (req, res) => {
 });
 
 // Protected routes - after public routes
+
+// Add a simple root route for testing
+app.get('/', (req, res) => {
+    res.json({ 
+        message: 'XS Backend API Server', 
+        status: 'running',
+        timestamp: new Date().toISOString(),
+        endpoints: {
+            health: '/api/health',
+            users: '/Users',
+            emailSignatures: '/Users/:id/email-signature',
+            signatureTemplates: '/api/public/signature-templates'
+        }
+    });
+});
+
 app.use('/', userRoutes);
 app.use('/', cardRoutes);
 app.use('/', contactRoutes);
@@ -550,6 +570,11 @@ app.use('/', activityLogRoutes); // Mount at root instead of /api/logs
 app.use('/', enterpriseRoutes);
 app.use('/', notificationRoutes);
 app.use('/api/templates', cardTemplateRoutes);
+
+// Test endpoint to verify server is working
+app.get('/api/test-public', (req, res) => {
+    res.json({ message: 'Public endpoint working', timestamp: new Date().toISOString() });
+});
 
 // Modify the user creation route to handle file upload
 app.post('/api/users', upload.single('profileImage'), (req, res, next) => {

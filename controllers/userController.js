@@ -2315,3 +2315,287 @@ exports.bulkReactivateUsers = async (req, res) => {
         });
     }
 };
+
+/**
+ * Create or update user's email signature
+ */
+exports.updateEmailSignature = async (req, res) => {
+    const { id } = req.params;
+    const { 
+        signatureText, 
+        signatureHtml, 
+        includeName = true, 
+        includeTitle = true, 
+        includeCompany = true, 
+        includePhone = true, 
+        includeEmail = true,
+        includeWebsite = false,
+        includeSocials = false,
+        signatureStyle = 'professional',
+        isActive = true
+    } = req.body;
+
+    try {
+        // Verify the user exists
+        const userRef = db.collection('users').doc(id);
+        const userDoc = await userRef.get();
+
+        if (!userDoc.exists) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        const userData = userDoc.data();
+        
+        // Get user's card data for signature generation
+        const cardDoc = await db.collection('cards').doc(id).get();
+        const cardData = cardDoc.exists ? cardDoc.data() : { cards: [] };
+        const userCard = cardData.cards && cardData.cards.length > 0 ? cardData.cards[0] : {};
+
+        // Generate signature HTML if not provided
+        let finalSignatureHtml = signatureHtml;
+        if (!signatureHtml && signatureText) {
+            finalSignatureHtml = generateSignatureHtml({
+                signatureText,
+                userData,
+                userCard,
+                includeName,
+                includeTitle,
+                includeCompany,
+                includePhone,
+                includeEmail,
+                includeWebsite,
+                includeSocials,
+                signatureStyle
+            });
+        }
+
+        // Prepare signature data
+        const signatureData = {
+            signatureText: signatureText || '',
+            signatureHtml: finalSignatureHtml || '',
+            includeName,
+            includeTitle,
+            includeCompany,
+            includePhone,
+            includeEmail,
+            includeWebsite,
+            includeSocials,
+            signatureStyle,
+            isActive,
+            updatedAt: admin.firestore.Timestamp.now()
+        };
+
+        // Update user with signature data
+        await userRef.update({
+            emailSignature: signatureData
+        });
+
+        // Log signature update
+        await logActivity({
+            action: ACTIONS.UPDATE,
+            resource: RESOURCES.USER,
+            userId: id,
+            resourceId: id,
+            details: {
+                signatureUpdated: true,
+                signatureStyle,
+                isActive
+            }
+        });
+
+        res.status(200).send({
+            message: 'Email signature updated successfully',
+            signature: signatureData
+        });
+
+    } catch (error) {
+        console.error('Error updating email signature:', error);
+        res.status(500).send({
+            message: 'Failed to update email signature',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Get user's email signature
+ */
+exports.getEmailSignature = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const userRef = db.collection('users').doc(id);
+        const userDoc = await userRef.get();
+
+        if (!userDoc.exists) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        const userData = userDoc.data();
+        const signature = userData.emailSignature || null;
+
+        res.status(200).send({
+            signature,
+            hasSignature: !!signature
+        });
+
+    } catch (error) {
+        console.error('Error getting email signature:', error);
+        res.status(500).send({
+            message: 'Failed to get email signature',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Delete user's email signature
+ */
+exports.deleteEmailSignature = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const userRef = db.collection('users').doc(id);
+        const userDoc = await userRef.get();
+
+        if (!userDoc.exists) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        // Remove email signature
+        await userRef.update({
+            emailSignature: admin.firestore.FieldValue.delete()
+        });
+
+        // Log signature deletion
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.USER,
+            userId: id,
+            resourceId: id,
+            details: {
+                signatureDeleted: true
+            }
+        });
+
+        res.status(200).send({
+            message: 'Email signature deleted successfully'
+        });
+
+    } catch (error) {
+        console.error('Error deleting email signature:', error);
+        res.status(500).send({
+            message: 'Failed to delete email signature',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Generate signature HTML based on user data and preferences
+ */
+const generateSignatureHtml = ({ 
+    signatureText, 
+    userData, 
+    userCard, 
+    includeName, 
+    includeTitle, 
+    includeCompany, 
+    includePhone, 
+    includeEmail, 
+    includeWebsite, 
+    includeSocials, 
+    signatureStyle 
+}) => {
+    const styles = {
+        professional: {
+            container: 'font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.4;',
+            name: 'font-weight: bold; color: #2c3e50; font-size: 16px;',
+            title: 'color: #7f8c8d; font-style: italic;',
+            contact: 'color: #34495e;',
+            separator: 'color: #bdc3c7;'
+        },
+        modern: {
+            container: 'font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; font-size: 14px; color: #2c3e50; line-height: 1.6;',
+            name: 'font-weight: 600; color: #1a252f; font-size: 16px;',
+            title: 'color: #5d6d7e; font-weight: 500;',
+            contact: 'color: #34495e;',
+            separator: 'color: #85929e;'
+        },
+        minimal: {
+            container: 'font-family: "Helvetica Neue", Arial, sans-serif; font-size: 13px; color: #555; line-height: 1.5;',
+            name: 'font-weight: 600; color: #333; font-size: 15px;',
+            title: 'color: #666;',
+            contact: 'color: #555;',
+            separator: 'color: #ddd;'
+        }
+    };
+
+    const style = styles[signatureStyle] || styles.professional;
+    
+    let signatureParts = [];
+    
+    // Add custom signature text if provided
+    if (signatureText) {
+        signatureParts.push(`<div style="${style.container}">${signatureText}</div>`);
+    }
+    
+    // Add name
+    if (includeName && (userData.name || userCard.name)) {
+        const fullName = `${userData.name || userCard.name || ''} ${userData.surname || userCard.surname || ''}`.trim();
+        if (fullName) {
+            signatureParts.push(`<div style="${style.name}">${fullName}</div>`);
+        }
+    }
+    
+    // Add title
+    if (includeTitle && (userData.occupation || userCard.occupation)) {
+        signatureParts.push(`<div style="${style.title}">${userData.occupation || userCard.occupation}</div>`);
+    }
+    
+    // Add company
+    if (includeCompany && (userData.company || userCard.company)) {
+        signatureParts.push(`<div style="${style.contact}">${userData.company || userCard.company}</div>`);
+    }
+    
+    // Add contact information
+    const contactInfo = [];
+    
+    if (includePhone && (userData.phone || userCard.phone)) {
+        contactInfo.push(`📞 ${userData.phone || userCard.phone}`);
+    }
+    
+    if (includeEmail && (userData.email || userCard.email)) {
+        contactInfo.push(`✉️ ${userData.email || userCard.email}`);
+    }
+    
+    if (includeWebsite && userCard.website) {
+        contactInfo.push(`🌐 ${userCard.website}`);
+    }
+    
+    if (contactInfo.length > 0) {
+        signatureParts.push(`<div style="${style.contact}">${contactInfo.join(' | ')}</div>`);
+    }
+    
+    // Add social media links
+    if (includeSocials && userCard.socials) {
+        const socialLinks = [];
+        const socials = userCard.socials;
+        
+        if (socials.linkedin) socialLinks.push(`<a href="${socials.linkedin}" style="color: #0077b5; text-decoration: none;">LinkedIn</a>`);
+        if (socials.twitter) socialLinks.push(`<a href="${socials.twitter}" style="color: #1da1f2; text-decoration: none;">Twitter</a>`);
+        if (socials.facebook) socialLinks.push(`<a href="${socials.facebook}" style="color: #1877f2; text-decoration: none;">Facebook</a>`);
+        if (socials.instagram) socialLinks.push(`<a href="${socials.instagram}" style="color: #e4405f; text-decoration: none;">Instagram</a>`);
+        
+        if (socialLinks.length > 0) {
+            signatureParts.push(`<div style="${style.contact}">${socialLinks.join(' | ')}</div>`);
+        }
+    }
+    
+    // Add XS Card branding
+    signatureParts.push(`<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid ${style.separator}; font-size: 12px; color: #95a5a6;">
+        Sent via <a href="https://xscard.com" style="color: #3498db; text-decoration: none;">XS Card</a>
+    </div>`);
+    
+    return signatureParts.join('<br>');
+};

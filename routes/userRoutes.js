@@ -59,4 +59,9 @@ router.patch('/reactivate', userController.reactivateUser);
 router.patch('/bulk-deactivate', userController.bulkDeactivateUsers);
 router.patch('/bulk-reactivate', userController.bulkReactivateUsers);
 
+// Email signature routes
+router.patch('/Users/:id/email-signature', userController.updateEmailSignature);
+router.get('/Users/:id/email-signature', userController.getEmailSignature);
+router.delete('/Users/:id/email-signature', userController.deleteEmailSignature);
+
 module.exports = router;
