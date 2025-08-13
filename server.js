@@ -69,15 +69,13 @@ const upload = multer({ storage: storage });
 // Increase body parser limit for email attachments and large payloads
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Serve static files from public directory - must be BEFORE any route mounting
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Public routes - must be before authentication middleware
-app.use(express.static(path.join(__dirname, 'public')));
 app.use('/', paymentRoutes);
 app.use('/', subscriptionRoutes);
-
-// Email signature routes (public endpoints)
-app.use('/api', emailSignatureRoutes);
 
 // Location analytics routes
 app.use('/api', locationRoutes);
@@ -112,8 +110,8 @@ app.get('/reset-password', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'reset-password.html'));
 });
 
-// Password setup endpoint - keep this in public routes
-app.post('/api/set-password', async (req, res) => {
+// Password setup endpoint - public (root path)
+app.post('/set-password', async (req, res) => {
   try {
     const { token, uid, password } = req.body;
 
@@ -171,6 +169,51 @@ app.post('/api/set-password', async (req, res) => {
     });
   }
 });
+
+// Backward-compatible API path for password setup (also public)
+app.post('/api/set-password', async (req, res) => {
+  try {
+    const { token, uid, password } = req.body;
+
+    if (!token || !uid || !password) {
+      return res.status(400).send({
+        success: false,
+        message: 'Token, user ID, and password are required'
+      });
+    }
+
+    const userRef = db.collection('users').doc(uid);
+    const userDoc = await userRef.get();
+
+    if (!userDoc.exists) {
+      return res.status(404).send({ success: false, message: 'User not found' });
+    }
+
+    const userData = userDoc.data();
+    const now = admin.firestore.Timestamp.now();
+
+    if (userData.passwordSetupToken !== token || 
+        !userData.passwordSetupExpires || 
+        userData.passwordSetupExpires.toDate() < now.toDate()) {
+      return res.status(400).send({ success: false, message: 'Invalid or expired token' });
+    }
+
+    await admin.auth().updateUser(uid, { password });
+
+    await userRef.update({
+      passwordSetupToken: admin.firestore.FieldValue.delete(),
+      passwordSetupExpires: admin.firestore.FieldValue.delete()
+    });
+
+    res.status(200).send({ success: true, message: 'Password set successfully' });
+  } catch (error) {
+    console.error('Error setting password:', error);
+    res.status(500).send({ success: false, message: 'Error setting password', error: error.message });
+  }
+});
+
+// Email signature routes (public endpoints) - mounted AFTER set-password to avoid auth intercepts
+app.use('/api', emailSignatureRoutes);
 
 // Add a diagnostic endpoint to check if the server is working
 app.get('/api/health', (req, res) => {
