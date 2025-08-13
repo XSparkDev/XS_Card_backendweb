@@ -653,8 +653,8 @@ exports.getEmployeeById = async (req, res) => {
                     if (cardDoc.exists && cardDoc.data().cards && Array.isArray(cardDoc.data().cards)) {
                         // Get all cards and format them
                         cardsData = cardDoc.data().cards.map(card => {
-                            // Clone the card to avoid mutating the original
-                            const formattedCard = {...card};
+                            // Clone the card to avoid mutating the original and remove old scan properties
+                            const { scans, numberOfScan, ...formattedCard } = card;
                             
                             // Format timestamps if any
                             if (formattedCard.createdAt) {
@@ -750,8 +750,8 @@ exports.getEmployeeCard = async (req, res) => {
 
         // Format all cards in the array
         const formattedCards = cardsData.cards.map(card => {
-            // Clone the card to avoid mutating the original
-            const formattedCard = {...card};
+            // Clone the card to avoid mutating the original and remove old scan properties
+            const { scans, numberOfScan, ...formattedCard } = card;
             
             // Format timestamp if needed
             if (formattedCard.createdAt) {
@@ -1872,8 +1872,11 @@ exports.getAllEnterpriseCards = async (req, res) => {
                 
                 // Format and add each card with employee context
                 cardDoc.data().cards.forEach((card, cardIndex) => {
+                    // Create a clean card object without old scan properties
+                    const { scans, numberOfScan, ...cleanCard } = card;
+                    
                     allCards.push({
-                        ...card,
+                        ...cleanCard,
                         userId: cardUserId,
                         cardIndex: cardIndex,
                         employeeId: employee.employeeId,
@@ -1959,8 +1962,11 @@ exports.getDepartmentCards = async (req, res) => {
                 const cardUserId = cardDoc.id;
                 
                 cardDoc.data().cards.forEach((card, cardIndex) => {
+                    // Create a clean card object without old scan properties
+                    const { scans, numberOfScan, ...cleanCard } = card;
+                    
                     departmentCards.push({
-                        ...card,
+                        ...cleanCard,
                         userId: cardUserId,
                         cardIndex: cardIndex,
                         employeeId: employee.employeeId,
@@ -2061,8 +2067,11 @@ exports.getTeamCards = async (req, res) => {
                 const cardUserId = cardDoc.id;
                 
                 cardDoc.data().cards.forEach((card, cardIndex) => {
+                    // Create a clean card object without old scan properties
+                    const { scans, numberOfScan, ...cleanCard } = card;
+                    
                     teamCards.push({
-                        ...card,
+                        ...cleanCard,
                         userId: cardUserId,
                         cardIndex: cardIndex,
                         employeeId: employee.employeeId,
