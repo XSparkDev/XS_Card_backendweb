@@ -1,0 +1,245 @@
+{
+  "getAllEnterpriseEmployees": {
+    "success": true,
+    "employees": [
+      {
+        "id": "user-001",
+        "firstName": "John",
+        "lastName": "Doe",
+        "email": "john.doe@example.com",
+        "role": "Manager",
+        "departmentId": "sales",
+        "departmentName": "Sales Department",
+        "status": "active",
+        "lastActive": "2025-08-17T20:34:19.391Z",
+        "individualPermissions": {
+          "removed": [
+            "createCards",
+            "deleteCards"
+          ],
+          "added": [
+            "manageAllCards"
+          ]
+        },
+        "effectivePermissions": [
+          "viewCards",
+          "editCards",
+          "exportCards",
+          "shareCards",
+          "manageAllCards"
+        ],
+        "scenario": "Manager with reduced create/delete permissions but added manageAllCards"
+      },
+      {
+        "id": "user-002",
+        "firstName": "Jane",
+        "lastName": "Smith",
+        "email": "jane.smith@example.com",
+        "role": "Employee",
+        "departmentId": "sales",
+        "departmentName": "Sales Department",
+        "status": "active",
+        "lastActive": "2025-08-17T20:34:19.391Z",
+        "individualPermissions": {
+          "removed": [],
+          "added": [
+            "deleteCards",
+            "exportCards"
+          ]
+        },
+        "effectivePermissions": [
+          "viewCards",
+          "createCards",
+          "editCards",
+          "shareCards",
+          "deleteCards",
+          "exportCards"
+        ],
+        "scenario": "Employee with additional delete and export permissions"
+      },
+      {
+        "id": "user-003",
+        "firstName": "Bob",
+        "lastName": "Wilson",
+        "email": "bob.wilson@example.com",
+        "role": "Administrator",
+        "departmentId": "sales",
+        "departmentName": "Sales Department",
+        "status": "active",
+        "lastActive": "2025-08-17T20:34:19.391Z",
+        "individualPermissions": {
+          "removed": [
+            "deleteCards",
+            "manageAllCards"
+          ],
+          "added": []
+        },
+        "effectivePermissions": [
+          "viewCards",
+          "createCards",
+          "editCards",
+          "exportCards",
+          "shareCards"
+        ],
+        "scenario": "Administrator with restricted delete and manage permissions"
+      }
+    ],
+    "totalCount": 3,
+    "currentPage": 1,
+    "totalPages": 1
+  },
+  "updatePermissions": [
+    {
+      "success": true,
+      "data": {
+        "userId": "user-001",
+        "updatedPermissions": {
+          "removed": [
+            "createCards",
+            "deleteCards"
+          ],
+          "added": [
+            "manageAllCards"
+          ]
+        },
+        "timestamp": "2025-08-17T20:34:19.391Z",
+        "updatedBy": "admin-user-123"
+      }
+    },
+    {
+      "success": true,
+      "data": {
+        "userId": "user-002",
+        "updatedPermissions": {
+          "removed": [],
+          "added": [
+            "deleteCards",
+            "exportCards"
+          ]
+        },
+        "timestamp": "2025-08-17T20:34:19.391Z",
+        "updatedBy": "admin-user-123"
+      }
+    },
+    {
+      "success": true,
+      "data": {
+        "userId": "user-003",
+        "updatedPermissions": {
+          "removed": [
+            "deleteCards",
+            "manageAllCards"
+          ],
+          "added": []
+        },
+        "timestamp": "2025-08-17T20:34:19.391Z",
+        "updatedBy": "admin-user-123"
+      }
+    }
+  ],
+  "permissionCalculationExamples": [
+    {
+      "user": {
+        "id": "user-001",
+        "name": "John Doe",
+        "role": "Manager"
+      },
+      "basePermissions": [
+        "viewCards",
+        "createCards",
+        "editCards",
+        "exportCards",
+        "shareCards"
+      ],
+      "individualPermissions": {
+        "removed": [
+          "createCards",
+          "deleteCards"
+        ],
+        "added": [
+          "manageAllCards"
+        ]
+      },
+      "effectivePermissions": [
+        "viewCards",
+        "editCards",
+        "exportCards",
+        "shareCards",
+        "manageAllCards"
+      ],
+      "scenario": "Manager with reduced create/delete permissions but added manageAllCards",
+      "permissionChanges": {
+        "removed": 2,
+        "added": 1
+      }
+    },
+    {
+      "user": {
+        "id": "user-002",
+        "name": "Jane Smith",
+        "role": "Employee"
+      },
+      "basePermissions": [
+        "viewCards",
+        "createCards",
+        "editCards",
+        "shareCards"
+      ],
+      "individualPermissions": {
+        "removed": [],
+        "added": [
+          "deleteCards",
+          "exportCards"
+        ]
+      },
+      "effectivePermissions": [
+        "viewCards",
+        "createCards",
+        "editCards",
+        "shareCards",
+        "deleteCards",
+        "exportCards"
+      ],
+      "scenario": "Employee with additional delete and export permissions",
+      "permissionChanges": {
+        "removed": 0,
+        "added": 2
+      }
+    },
+    {
+      "user": {
+        "id": "user-003",
+        "name": "Bob Wilson",
+        "role": "Administrator"
+      },
+      "basePermissions": [
+        "viewCards",
+        "createCards",
+        "editCards",
+        "deleteCards",
+        "manageAllCards",
+        "exportCards",
+        "shareCards"
+      ],
+      "individualPermissions": {
+        "removed": [
+          "deleteCards",
+          "manageAllCards"
+        ],
+        "added": []
+      },
+      "effectivePermissions": [
+        "viewCards",
+        "createCards",
+        "editCards",
+        "exportCards",
+        "shareCards"
+      ],
+      "scenario": "Administrator with restricted delete and manage permissions",
+      "permissionChanges": {
+        "removed": 2,
+        "added": 0
+      }
+    }
+  ]
+}

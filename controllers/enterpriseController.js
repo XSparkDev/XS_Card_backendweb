@@ -992,4 +992,151 @@ exports.getEnterpriseEmailLogs = async (req, res) => {
       error: error.message
     });
   }
+};
+
+/**
+ * Update User Individual Permissions (Business Cards POC)
+ */
+exports.updateUserIndividualPermissions = async (req, res) => {
+  try {
+    const { enterpriseId, userId } = req.params;
+    const { individualPermissions } = req.body;
+    const currentUserId = req.user.uid;
+
+    // Validate required parameters
+    if (!enterpriseId || !userId) {
+      return res.status(400).json({
+        status: false,
+        message: 'Enterprise ID and User ID are required'
+      });
+    }
+
+    if (!individualPermissions || typeof individualPermissions !== 'object') {
+      return res.status(400).json({
+        status: false,
+        message: 'Individual permissions object is required'
+      });
+    }
+
+    // Validate individualPermissions structure
+    const { removed = [], added = [] } = individualPermissions;
+    
+    if (!Array.isArray(removed) || !Array.isArray(added)) {
+      return res.status(400).json({
+        status: false,
+        message: 'Individual permissions must have "removed" and "added" arrays'
+      });
+    }
+
+    // Valid business card permissions
+    const validPermissions = [
+      'viewCards', 'createCards', 'editCards', 'deleteCards', 
+      'manageAllCards', 'exportCards', 'shareCards'
+    ];
+
+    // Validate permission names
+    const allPermissions = [...removed, ...added];
+    const invalidPermissions = allPermissions.filter(perm => !validPermissions.includes(perm));
+    
+    if (invalidPermissions.length > 0) {
+      return res.status(400).json({
+        status: false,
+        message: `Invalid permissions: ${invalidPermissions.join(', ')}. Valid permissions are: ${validPermissions.join(', ')}`
+      });
+    }
+
+    // Check if enterprise exists
+    const enterpriseRef = db.collection('enterprise').doc(enterpriseId);
+    const enterpriseDoc = await enterpriseRef.get();
+    
+    if (!enterpriseDoc.exists) {
+      return res.status(404).json({
+        status: false,
+        message: 'Enterprise not found'
+      });
+    }
+
+    // Check if user exists in the enterprise users collection
+    let userRef = enterpriseRef.collection('users').doc(userId);
+    let userDoc = await userRef.get();
+    
+    // If user doesn't exist in enterprise users collection, create them
+    if (!userDoc.exists) {
+      // Check if user exists in main users collection
+      const mainUserRef = db.collection('users').doc(userId);
+      const mainUserDoc = await mainUserRef.get();
+      
+      if (!mainUserDoc.exists) {
+        return res.status(404).json({
+          status: false,
+          message: 'User not found in system'
+        });
+      }
+      
+      // Create user in enterprise users collection
+      const mainUserData = mainUserDoc.data();
+      await userRef.set({
+        id: userId,
+        firstName: mainUserData.name || mainUserData.firstName || '',
+        lastName: mainUserData.surname || mainUserData.lastName || '',
+        email: mainUserData.email || '',
+        role: mainUserData.role || 'Employee',
+        status: 'active',
+        individualPermissions: { removed: [], added: [] },
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+      
+      // Get the newly created user document
+      userDoc = await userRef.get();
+    }
+
+    // Update user document with individual permissions
+    const updateData = {
+      individualPermissions: {
+        removed: removed,
+        added: added
+      },
+      lastModified: new Date(),
+      lastModifiedBy: currentUserId
+    };
+
+    await userRef.update(updateData);
+
+    // Get updated user data
+    const updatedUserDoc = await userRef.get();
+    const updatedUserData = updatedUserDoc.data();
+
+    // Log the permission change
+    await logActivity({
+      action: ACTIONS.UPDATE,
+      resource: 'USER_PERMISSIONS',
+      userId: currentUserId,
+      resourceId: userId,
+      details: {
+        enterpriseId: enterpriseId,
+        targetUserId: userId,
+        individualPermissions: individualPermissions,
+        previousPermissions: userDoc.data().individualPermissions || null
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        userId: userId,
+        updatedPermissions: updatedUserData.individualPermissions,
+        timestamp: new Date().toISOString(),
+        updatedBy: currentUserId
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating user individual permissions:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Failed to update user individual permissions',
+      error: error.message
+    });
+  }
 }; 

@@ -12,6 +12,126 @@ const sendError = (res, status, message, error = null) => {
     });
 };
 
+/**
+ * Helper function to check user permissions for card access operations
+ * Adapted from proven pattern in cardTemplateController.js
+ */
+const checkCardPermissions = async (userId, enterpriseId, targetDepartmentId = null, targetUserId = null) => {
+    try {
+        // Get user's enterprise data to check their role
+        const enterpriseRef = db.collection('enterprise').doc(enterpriseId);
+        const enterpriseDoc = await enterpriseRef.get();
+        
+        if (!enterpriseDoc.exists) {
+            return { allowed: false, reason: 'Enterprise not found' };
+        }
+
+        // Find user's role in the enterprise
+        let userRole = null;
+        let userDepartmentId = null;
+
+        // Check all departments for this user
+        const departmentsSnapshot = await enterpriseRef.collection('departments').get();
+        
+        for (const deptDoc of departmentsSnapshot.docs) {
+            const employeesSnapshot = await deptDoc.ref.collection('employees')
+                .where('userId', '==', db.doc(`users/${userId}`))
+                .get();
+            
+            if (!employeesSnapshot.empty) {
+                const employeeData = employeesSnapshot.docs[0].data();
+                userRole = employeeData.role;
+                userDepartmentId = deptDoc.id;
+                break;
+            }
+        }
+
+        if (!userRole) {
+            return { allowed: false, reason: 'User not found in enterprise' };
+        }
+
+        // Get user's individual permissions (if they exist)
+        let individualPermissions = { removed: [], added: [] };
+        try {
+            const userRef = enterpriseRef.collection('users').doc(userId);
+            const userDoc = await userRef.get();
+            if (userDoc.exists) {
+                individualPermissions = userDoc.data().individualPermissions || { removed: [], added: [] };
+            }
+        } catch (permError) {
+            console.log('No individual permissions found for user, using defaults');
+        }
+
+        // Check if user has viewCards permission
+        const basePermissions = {
+            'admin': ['viewCards', 'createCards', 'editCards', 'deleteCards', 'manageAllCards', 'exportCards', 'shareCards'],
+            'manager': ['viewCards', 'createCards', 'editCards', 'exportCards', 'shareCards'],
+            'employee': ['viewCards', 'createCards', 'editCards', 'shareCards']
+        };
+
+        let effectivePermissions = [...(basePermissions[userRole] || [])];
+
+        // Apply individual permission overrides
+        if (individualPermissions.removed) {
+            effectivePermissions = effectivePermissions.filter(p => !individualPermissions.removed.includes(p));
+        }
+        if (individualPermissions.added) {
+            effectivePermissions = [...effectivePermissions, ...individualPermissions.added];
+        }
+
+        // Check if user has basic viewCards permission
+        if (!effectivePermissions.includes('viewCards')) {
+            return { allowed: false, reason: 'Access denied: viewCards permission required' };
+        }
+
+        // Determine access level based on role and permissions
+        if (userRole === 'admin' && effectivePermissions.includes('manageAllCards')) {
+            return { 
+                allowed: true, 
+                accessLevel: 'all_enterprise', 
+                userRole, 
+                userDepartmentId, 
+                effectivePermissions 
+            };
+        } else if (userRole === 'manager') {
+            // Managers can see department cards only
+            if (targetDepartmentId && targetDepartmentId !== userDepartmentId) {
+                return { 
+                    allowed: false, 
+                    reason: 'Managers can only view cards from their own department' 
+                };
+            }
+            return { 
+                allowed: true, 
+                accessLevel: 'department', 
+                userRole, 
+                userDepartmentId, 
+                effectivePermissions 
+            };
+        } else {
+            // Employees can only see their own cards
+            if (targetUserId && targetUserId !== userId) {
+                return { 
+                    allowed: false, 
+                    reason: 'Employees can only view their own cards' 
+                };
+            }
+            return { 
+                allowed: true, 
+                accessLevel: 'own', 
+                userRole, 
+                userDepartmentId, 
+                effectivePermissions,
+                ownUserId: userId
+            };
+        }
+
+    } catch (error) {
+        console.error('Error checking card permissions:', error);
+        return { allowed: false, reason: 'Error checking permissions' };
+    }
+};
+
 // Get all departments for an enterprise
 exports.getAllDepartments = async (req, res) => {
     try {
@@ -1811,9 +1931,19 @@ exports.unassignAllEmployees = async (req, res) => {
 exports.getAllEnterpriseCards = async (req, res) => {
     try {
         const { enterpriseId } = req.params;
+        const userId = req.user.uid;
         
         if (!enterpriseId) {
             return sendError(res, 400, 'Enterprise ID is required');
+        }
+
+        // Check user permissions for card access
+        const permissionCheck = await checkCardPermissions(userId, enterpriseId);
+        if (!permissionCheck.allowed) {
+            return res.status(403).json({
+                success: false,
+                message: permissionCheck.reason
+            });
         }
 
         // First get all departments in the enterprise
@@ -1835,10 +1965,33 @@ exports.getAllEnterpriseCards = async (req, res) => {
         const employeeInfo = [];
         
         for (const deptDoc of departmentsSnapshot.docs) {
+            // Apply department filtering based on access level
+            if (permissionCheck.accessLevel === 'department' && 
+                deptDoc.id !== permissionCheck.userDepartmentId) {
+                continue; // Skip departments user doesn't have access to
+            }
+            
             const employeesSnapshot = await deptDoc.ref.collection('employees').get();
             
             for (const employeeDoc of employeesSnapshot.docs) {
                 const employeeData = employeeDoc.data();
+                
+                // Apply user-level filtering for employees
+                if (permissionCheck.accessLevel === 'own') {
+                    // For employees, only show their own cards
+                    let employeeUserId = null;
+                    if (employeeData.userId && typeof employeeData.userId === 'object' && employeeData.userId.id) {
+                        employeeUserId = employeeData.userId.id;
+                    } else if (typeof employeeData.userId === 'string') {
+                        employeeUserId = employeeData.userId;
+                    } else {
+                        employeeUserId = employeeDoc.id; // Fallback to employee document ID
+                    }
+                    
+                    if (employeeUserId !== userId) {
+                        continue; // Skip cards that don't belong to the current user
+                    }
+                }
                 
                 if (employeeData.cardsRef) {
                     // Store employee info for later association with cards
@@ -1896,7 +2049,9 @@ exports.getAllEnterpriseCards = async (req, res) => {
         res.status(200).send({
             success: true,
             cards: allCards,
-            count: allCards.length
+            count: allCards.length,
+            accessLevel: permissionCheck.accessLevel,
+            userRole: permissionCheck.userRole
         });
         
     } catch (error) {
@@ -1908,9 +2063,19 @@ exports.getAllEnterpriseCards = async (req, res) => {
 exports.getDepartmentCards = async (req, res) => {
     try {
         const { enterpriseId, departmentId } = req.params;
+        const userId = req.user.uid;
         
         if (!enterpriseId || !departmentId) {
             return sendError(res, 400, 'Enterprise ID and Department ID are required');
+        }
+
+        // Check user permissions for card access
+        const permissionCheck = await checkCardPermissions(userId, enterpriseId, departmentId);
+        if (!permissionCheck.allowed) {
+            return res.status(403).json({
+                success: false,
+                message: permissionCheck.reason
+            });
         }
 
         // Get all employees in the department
@@ -1935,6 +2100,23 @@ exports.getDepartmentCards = async (req, res) => {
         
         employeesSnapshot.forEach(employeeDoc => {
             const employeeData = employeeDoc.data();
+            
+            // Apply user-level filtering for employees
+            if (permissionCheck.accessLevel === 'own') {
+                // For employees, only show their own cards
+                let employeeUserId = null;
+                if (employeeData.userId && typeof employeeData.userId === 'object' && employeeData.userId.id) {
+                    employeeUserId = employeeData.userId.id;
+                } else if (typeof employeeData.userId === 'string') {
+                    employeeUserId = employeeData.userId;
+                } else {
+                    employeeUserId = employeeDoc.id; // Fallback to employee document ID
+                }
+                
+                if (employeeUserId !== userId) {
+                    return; // Skip cards that don't belong to the current user
+                }
+            }
             
             if (employeeData.cardsRef) {
                 employeeInfo.push({
@@ -1986,7 +2168,9 @@ exports.getDepartmentCards = async (req, res) => {
             success: true,
             departmentId,
             cards: departmentCards,
-            count: departmentCards.length
+            count: departmentCards.length,
+            accessLevel: permissionCheck.accessLevel,
+            userRole: permissionCheck.userRole
         });
         
     } catch (error) {
@@ -1998,9 +2182,19 @@ exports.getDepartmentCards = async (req, res) => {
 exports.getTeamCards = async (req, res) => {
     try {
         const { enterpriseId, departmentId, teamId } = req.params;
+        const userId = req.user.uid;
         
         if (!enterpriseId || !departmentId || !teamId) {
             return sendError(res, 400, 'Enterprise ID, Department ID, and Team ID are required');
+        }
+
+        // Check user permissions for card access (teams inherit department access)
+        const permissionCheck = await checkCardPermissions(userId, enterpriseId, departmentId);
+        if (!permissionCheck.allowed) {
+            return res.status(403).json({
+                success: false,
+                message: permissionCheck.reason
+            });
         }
 
         // Get the team first to verify it exists
@@ -2034,6 +2228,23 @@ exports.getTeamCards = async (req, res) => {
         
         for (const employeeDoc of teamEmployeesSnapshot.docs) {
             const employeeData = employeeDoc.data();
+            
+            // Apply user-level filtering for employees
+            if (permissionCheck.accessLevel === 'own') {
+                // For employees, only show their own cards
+                let employeeUserId = null;
+                if (employeeData.userId && typeof employeeData.userId === 'object' && employeeData.userId.id) {
+                    employeeUserId = employeeData.userId.id;
+                } else if (typeof employeeData.userId === 'string') {
+                    employeeUserId = employeeData.userId;
+                } else {
+                    employeeUserId = employeeDoc.id; // Fallback to employee document ID
+                }
+                
+                if (employeeUserId !== userId) {
+                    continue; // Skip cards that don't belong to the current user
+                }
+            }
             
             if (employeeData.cardsRef) {
                 employeeInfo.push({
@@ -2093,7 +2304,9 @@ exports.getTeamCards = async (req, res) => {
             teamId,
             teamName: teamDoc.data().name,
             cards: teamCards,
-            count: teamCards.length
+            count: teamCards.length,
+            accessLevel: permissionCheck.accessLevel,
+            userRole: permissionCheck.userRole
         });
         
     } catch (error) {
@@ -2168,6 +2381,43 @@ exports.getAllEnterpriseEmployees = async (req, res) => {
 
         // Wait for all employee fetches to complete
         await Promise.all(fetchPromises);
+        
+        // Fetch individual permissions for all employees
+        const userPermissionsPromises = allEmployees.map(async (employee) => {
+            try {
+                // Get userId from employee data - it could be in different formats
+                let userId = null;
+                if (employee.userId && typeof employee.userId === 'object' && employee.userId.id) {
+                    userId = employee.userId.id;
+                } else if (typeof employee.userId === 'string') {
+                    userId = employee.userId;
+                } else {
+                    userId = employee.id; // Fallback to employee document ID
+                }
+                
+                if (userId) {
+                    const userRef = enterpriseRef.collection('users').doc(userId);
+                    const userDoc = await userRef.get();
+                    
+                    if (userDoc.exists) {
+                        const userData = userDoc.data();
+                        employee.individualPermissions = userData.individualPermissions || { removed: [], added: [] };
+                        employee.role = userData.role || employee.role || 'Employee'; // Add role if not present
+                    } else {
+                        employee.individualPermissions = { removed: [], added: [] };
+                    }
+                } else {
+                    employee.individualPermissions = { removed: [], added: [] };
+                }
+            } catch (error) {
+                console.error(`Error fetching permissions for employee ${employee.id}:`, error);
+                employee.individualPermissions = { removed: [], added: [] };
+            }
+            return employee;
+        });
+        
+        // Wait for all permission fetches to complete
+        await Promise.all(userPermissionsPromises);
         
         // Handle search if provided
         let filteredEmployees = allEmployees;

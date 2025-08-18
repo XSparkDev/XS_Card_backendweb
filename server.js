@@ -610,7 +610,7 @@ app.use('/', departmentsRoutes);
 app.use('/', paymentRoutes);
 app.use('/', billingRoutes);
 app.use('/', activityLogRoutes); // Mount at root instead of /api/logs
-app.use('/', enterpriseRoutes);
+app.use('/api', enterpriseRoutes); // Mount enterprise routes with /api prefix
 app.use('/', notificationRoutes);
 app.use('/api/templates', cardTemplateRoutes);
 

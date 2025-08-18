@@ -85,4 +85,7 @@ router.post('/enterprise/:enterpriseId/security/actions/temp-lock-account', auth
 router.post('/enterprise/:enterpriseId/security/actions/send-security-alert', authenticateUser, securityActionsController.sendSecurityAlert);
 router.post('/enterprise/:enterpriseId/security/actions/create-incident', authenticateUser, securityActionsController.createIncidentReport);
 
+// Individual Permissions endpoints (Business Cards POC)
+router.put('/enterprise/:enterpriseId/users/:userId/permissions', authenticateUser, enterpriseController.updateUserIndividualPermissions);
+
 module.exports = router;
