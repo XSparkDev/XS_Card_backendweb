@@ -16,4 +16,13 @@ router.patch('/Contacts/:id', contactController.updateContact);
 router.delete('/Contacts/:id', contactController.deleteContact);
 router.delete('/Contacts/:id/contact/:index', contactController.deleteContactFromList);
 
+// Contact permissions management
+router.put('/enterprise/:enterpriseId/users/:userId/contact-permissions', contactController.updateUserContactPermissions);
+
+module.exports = router;
+
+
+module.exports = router;
+
+
 module.exports = router;

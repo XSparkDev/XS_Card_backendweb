@@ -489,25 +489,22 @@ exports.getContactById = async (req, res) => {
         const contactRef = db.collection('contacts').doc(id);
         const doc = await contactRef.get();
         
-        let data;
         if (!doc.exists) {
-            // Return empty contact list instead of 404
-            console.log(`📝 [ContactController] Contact document does not exist for user ${id}, returning empty list`);
-            data = {
-                userId: db.doc(`users/${id}`),
-                contactList: []
-            };
-        } else {
-            // Send raw data for debugging
-            data = doc.data();
-            console.log('Raw contact data:', data); // Debug log
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
 
-            if (data.contactList) {
-                data.contactList = data.contactList.map(contact => ({
-                    ...contact,
-                    createdAt: formatDate(contact.createdAt) // Format for display
-                }));
-            }
+        // Send raw data for debugging
+        const data = doc.data();
+        console.log('Raw contact data:', data); // Debug log
+
+        if (data.contactList) {
+            data.contactList = data.contactList.map(contact => ({
+                ...contact,
+                createdAt: formatDate(contact.createdAt) // Format for display
+            }));
         }
 
         // Log the access

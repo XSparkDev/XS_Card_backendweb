@@ -1,0 +1,3406 @@
+const { db, admin } = require('../firebase.js');
+const { transporter, sendMailWithStatus } = require('../public/Utils/emailService');
+const { formatDate } = require('../utils/dateFormatter');
+const { logActivity, ACTIONS, RESOURCES } = require('../utils/logger');
+
+// Import contact cache for invalidation
+const { contactCache } = require('./enterprise/contactAggregationController');
+
+// Add constant for free plan limit
+const FREE_PLAN_CONTACT_LIMIT = 3;
+
+/**
+ * Helper function to check user permissions for contact access operations
+ * Follows the same pattern as checkCardPermissions in departmentsController.js
+ * Currently implements employee-only permissions (access level: 'own')
+ */
+const checkContactPermissions = async (userId, action, targetUserId = null) => {
+    try {
+        console.log(`🔍 [ContactPermissions] Checking ${action} permission for user: ${userId}, target: ${targetUserId}`);
+
+        // Get user's basic data to check if they have enterprise association
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        
+        if (!userDoc.exists) {
+            return { allowed: false, reason: 'User not found' };
+        }
+
+        const userData = userDoc.data();
+        const enterpriseRef = userData.enterpriseRef;
+
+        // If no enterprise association, allow access to own contacts only
+        if (!enterpriseRef) {
+            console.log(`📝 [ContactPermissions] No enterprise association - allowing own access only`);
+            if (targetUserId && targetUserId !== userId) {
+                return { 
+                    allowed: false, 
+                    reason: 'Non-enterprise users can only access their own contacts' 
+                };
+            }
+            return { 
+                allowed: true, 
+                accessLevel: 'own', 
+                userRole: 'individual',
+                ownUserId: userId,
+                effectivePermissions: ['viewContacts', 'deleteContacts', 'shareContacts']
+            };
+        }
+
+        const enterpriseId = enterpriseRef.id;
+        const enterpriseDoc = await enterpriseRef.get();
+        
+        if (!enterpriseDoc.exists) {
+            return { allowed: false, reason: 'Enterprise not found' };
+        }
+
+        // Find user's role in the enterprise
+        let userRole = null;
+        let userDepartmentId = null;
+
+        // Check all departments for this user
+        const departmentsSnapshot = await enterpriseRef.collection('departments').get();
+        
+        for (const deptDoc of departmentsSnapshot.docs) {
+            const employeesSnapshot = await deptDoc.ref.collection('employees')
+                .where('userId', '==', db.doc(`users/${userId}`))
+                .get();
+            
+            if (!employeesSnapshot.empty) {
+                const employeeData = employeesSnapshot.docs[0].data();
+                userRole = employeeData.role;
+                userDepartmentId = deptDoc.id;
+                break;
+            }
+        }
+
+        if (!userRole) {
+            // User has enterpriseRef but is not an employee - treat as individual user
+            console.log(`📝 [ContactPermissions] User has enterprise association but is not an employee - treating as individual user`);
+            if (targetUserId && targetUserId !== userId) {
+                return { 
+                    allowed: false, 
+                    reason: 'Non-employee enterprise users can only access their own contacts' 
+                };
+            }
+            return { 
+                allowed: true, 
+                accessLevel: 'own', 
+                userRole: 'individual',
+                ownUserId: userId,
+                effectivePermissions: ['viewContacts', 'deleteContacts', 'shareContacts']
+            };
+        }
+
+        // Get user's individual permissions (if they exist)
+        let individualPermissions = { removed: [], added: [] };
+        try {
+            const enterpriseUserRef = enterpriseRef.collection('users').doc(userId);
+            const enterpriseUserDoc = await enterpriseUserRef.get();
+            if (enterpriseUserDoc.exists) {
+                individualPermissions = enterpriseUserDoc.data().individualPermissions || { removed: [], added: [] };
+            }
+        } catch (permError) {
+            console.log('No individual permissions found for user, using defaults');
+        }
+
+        // Define contact permissions by role (from analysis document)
+        const basePermissions = {
+            'admin': ['viewContacts', 'deleteContacts', 'manageAllContacts', 'exportContacts', 'shareContacts'],
+            'manager': ['viewContacts', 'deleteContacts', 'manageAllContacts', 'exportContacts', 'shareContacts'],
+            'employee': ['viewContacts', 'deleteContacts', 'shareContacts']
+        };
+
+        let effectivePermissions = [...(basePermissions[userRole] || [])];
+
+        // Apply individual permission overrides
+        if (individualPermissions.removed) {
+            effectivePermissions = effectivePermissions.filter(p => !individualPermissions.removed.includes(p));
+        }
+        if (individualPermissions.added) {
+            effectivePermissions = [...effectivePermissions, ...individualPermissions.added];
+        }
+
+        // Check if user has the required permission for this action
+        const requiredPermission = getRequiredPermission(action);
+        if (!effectivePermissions.includes(requiredPermission)) {
+            return { allowed: false, reason: `Access denied: ${requiredPermission} permission required` };
+        }
+
+        // Phase 2: Handle all roles (admin, manager, employee)
+        if (userRole === 'employee') {
+            // Employees can only access their own contacts
+            if (targetUserId && targetUserId !== userId) {
+                return { 
+                    allowed: false, 
+                    reason: 'Employees can only access their own contacts' 
+                };
+            }
+            return { 
+                allowed: true, 
+                accessLevel: 'own', 
+                userRole, 
+                userDepartmentId, 
+                effectivePermissions,
+                ownUserId: userId
+            };
+        }
+
+        if (userRole === 'admin') {
+            // Admins have enterprise-wide access
+            return { 
+                allowed: true, 
+                accessLevel: 'all_enterprise', 
+                userRole, 
+                userDepartmentId, 
+                effectivePermissions,
+                enterpriseId: enterpriseId
+            };
+        }
+
+        if (userRole === 'manager') {
+            // Managers have enterprise-wide access (same as admin for contacts)
+            return { 
+                allowed: true, 
+                accessLevel: 'all_enterprise', 
+                userRole, 
+                userDepartmentId, 
+                effectivePermissions,
+                enterpriseId: enterpriseId
+            };
+        }
+
+        // Unknown role
+        return { 
+            allowed: false, 
+            reason: `Unsupported user role: '${userRole}'. Supported roles: admin, manager, employee.` 
+        };
+
+    } catch (error) {
+        console.error('Error checking contact permissions:', error);
+        return { allowed: false, reason: 'Error checking permissions' };
+    }
+};
+
+/**
+ * Map actions to required permissions
+ */
+const getRequiredPermission = (action) => {
+    const actionMap = {
+        'view': 'viewContacts',
+        'delete': 'deleteContacts',
+        'export': 'exportContacts',
+        'share': 'shareContacts',
+        'manage': 'manageAllContacts'
+    };
+    return actionMap[action] || 'viewContacts';
+};
+
+/**
+ * Update User Individual Contact Permissions
+ */
+exports.updateUserContactPermissions = async (req, res) => {
+    try {
+        const { enterpriseId, userId } = req.params;
+        const { individualPermissions } = req.body;
+        const currentUserId = req.user.uid;
+
+        // Validate required parameters
+        if (!enterpriseId || !userId) {
+            return res.status(400).json({
+                status: false,
+                message: 'Enterprise ID and User ID are required'
+            });
+        }
+
+        if (!individualPermissions || typeof individualPermissions !== 'object') {
+            return res.status(400).json({
+                status: false,
+                message: 'Individual permissions object is required'
+            });
+        }
+
+        // Validate individualPermissions structure
+        const { removed = [], added = [] } = individualPermissions;
+        
+        if (!Array.isArray(removed) || !Array.isArray(added)) {
+            return res.status(400).json({
+                status: false,
+                message: 'Individual permissions must have "removed" and "added" arrays'
+            });
+        }
+
+        // Valid contact permissions
+        const validPermissions = [
+            'viewContacts', 'deleteContacts', 'manageAllContacts', 
+            'exportContacts', 'shareContacts'
+        ];
+
+        // Validate permission names
+        const allPermissions = [...removed, ...added];
+        const invalidPermissions = allPermissions.filter(perm => !validPermissions.includes(perm));
+        
+        if (invalidPermissions.length > 0) {
+            return res.status(400).json({
+                status: false,
+                message: `Invalid permissions: ${invalidPermissions.join(', ')}. Valid permissions are: ${validPermissions.join(', ')}`
+            });
+        }
+
+        // Check if enterprise exists
+        const enterpriseRef = db.collection('enterprise').doc(enterpriseId);
+        const enterpriseDoc = await enterpriseRef.get();
+        
+        if (!enterpriseDoc.exists) {
+            return res.status(404).json({
+                status: false,
+                message: 'Enterprise not found'
+            });
+        }
+
+        // Check if user exists in the enterprise users collection
+        let userRef = enterpriseRef.collection('users').doc(userId);
+        let userDoc = await userRef.get();
+        
+        // If user doesn't exist in enterprise users collection, create them
+        if (!userDoc.exists) {
+            // Check if user exists in main users collection
+            const mainUserRef = db.collection('users').doc(userId);
+            const mainUserDoc = await mainUserRef.get();
+            
+            if (!mainUserDoc.exists) {
+                return res.status(404).json({
+                    status: false,
+                    message: 'User not found in system'
+                });
+            }
+            
+            // Create user in enterprise users collection
+            const mainUserData = mainUserDoc.data();
+            await userRef.set({
+                id: userId,
+                firstName: mainUserData.name || mainUserData.firstName || '',
+                lastName: mainUserData.surname || mainUserData.lastName || '',
+                email: mainUserData.email || '',
+                role: mainUserData.role || 'Employee',
+                status: 'active',
+                individualPermissions: { removed: [], added: [] },
+                createdAt: new Date(),
+                updatedAt: new Date()
+            });
+            
+            // Get the newly created user document
+            userDoc = await userRef.get();
+        }
+
+        // Update user document with individual permissions
+        const updateData = {
+            individualPermissions: {
+                removed: removed,
+                added: added
+            },
+            lastModified: new Date(),
+            lastModifiedBy: currentUserId
+        };
+
+        await userRef.update(updateData);
+
+        // Get updated user data
+        const updatedUserDoc = await userRef.get();
+        const updatedUserData = updatedUserDoc.data();
+
+        // Log the permission change
+        console.log(`🔧 [ContactPermissions] Updated individual permissions for user ${userId} in enterprise ${enterpriseId}`);
+        console.log(`📝 Previous: ${JSON.stringify(userDoc.data().individualPermissions || {})}`);
+        console.log(`📝 New: ${JSON.stringify(updatedUserData.individualPermissions)}`);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                userId: userId,
+                updatedPermissions: updatedUserData.individualPermissions,
+                timestamp: new Date().toISOString(),
+                updatedBy: currentUserId
+            }
+        });
+
+    } catch (error) {
+        console.error('Error updating user contact permissions:', error);
+        res.status(500).json({
+            status: false,
+            message: 'Failed to update user contact permissions',
+            error: error.message
+        });
+    }
+};
+
+exports.getAllContacts = async (req, res) => {
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+
+        console.log(`🔍 [ContactController] getAllContacts - User ${requestingUserId} requesting all contacts`);
+
+        // Check contact permissions - no specific target user for "all" contacts
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'view');
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        // For employee role with 'own' access level, only return their own contacts
+        if (permissionCheck.accessLevel === 'own') {
+            console.log(`📝 [ContactController] Returning own contacts only for user: ${requestingUserId}`);
+            
+            const contactRef = db.collection('contacts').doc(requestingUserId);
+            const doc = await contactRef.get();
+            
+            if (!doc.exists || !doc.data().contactList) {
+                return res.status(200).send({
+                    success: true,
+                    contacts: [],
+                    message: 'No contacts found for user'
+                });
+            }
+
+            const data = doc.data();
+            const formattedContacts = data.contactList.map(contact => ({
+                ...contact,
+                createdAt: formatDate(contact.createdAt)
+            }));
+
+            // Log the access
+            await logActivity({
+                action: ACTIONS.READ,
+                resource: RESOURCES.CONTACT,
+                userId: requestingUserId,
+                details: {
+                    accessLevel: permissionCheck.accessLevel,
+                    userRole: permissionCheck.userRole,
+                    contactCount: formattedContacts.length,
+                    scope: 'own'
+                }
+            });
+
+            return res.status(200).send({
+                success: true,
+                contacts: [{
+                    id: requestingUserId,
+                    contactList: formattedContacts
+                }],
+                totalCount: formattedContacts.length
+            });
+        }
+
+        // Phase 2: Handle enterprise-level access for admin/manager roles
+        if (permissionCheck.accessLevel === 'all_enterprise') {
+            console.log(`🏢 [ContactController] Fetching enterprise-wide contacts for ${permissionCheck.userRole} in enterprise: ${permissionCheck.enterpriseId}`);
+            
+            // Get all contacts for the enterprise
+            const enterpriseContacts = await getAllEnterpriseContacts(permissionCheck.enterpriseId);
+            
+            // Log the access
+            await logActivity({
+                action: ACTIONS.READ,
+                resource: RESOURCES.CONTACT,
+                userId: requestingUserId,
+                details: {
+                    accessLevel: permissionCheck.accessLevel,
+                    userRole: permissionCheck.userRole,
+                    enterpriseId: permissionCheck.enterpriseId,
+                    contactCount: enterpriseContacts.totalCount,
+                    scope: 'all_enterprise'
+                }
+            });
+
+            return res.status(200).send({
+                success: true,
+                contacts: enterpriseContacts.contacts,
+                totalCount: enterpriseContacts.totalCount,
+                enterpriseId: permissionCheck.enterpriseId,
+                accessLevel: 'all_enterprise'
+            });
+        }
+
+        // Unknown access level
+        console.log(`🚧 [ContactController] Unknown access level: ${permissionCheck.accessLevel}`);
+        return res.status(501).json({
+            success: false,
+            message: `Access level '${permissionCheck.accessLevel}' not implemented`,
+            supportedAccessLevels: ['own', 'all_enterprise'],
+            currentAccessLevel: permissionCheck.accessLevel
+        });
+
+    } catch (error) {
+        console.error('Error fetching contacts:', error);
+        res.status(500).send({ 
+            success: false,
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.getContactById = async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🔍 [ContactController] getContactById - User ${requestingUserId} requesting contacts for ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'view', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        // Send raw data for debugging
+        const data = doc.data();
+        console.log('Raw contact data:', data); // Debug log
+
+        if (data.contactList) {
+            data.contactList = data.contactList.map(contact => ({
+                ...contact,
+                createdAt: formatDate(contact.createdAt) // Format for display
+            }));
+        }
+
+        // Log the access
+        await logActivity({
+            action: ACTIONS.READ,
+            resource: RESOURCES.CONTACT,
+            userId: requestingUserId,
+            resourceId: id,
+            details: {
+                accessLevel: permissionCheck.accessLevel,
+                userRole: permissionCheck.userRole,
+                contactCount: data.contactList ? data.contactList.length : 0
+            }
+        });
+
+        // Send the data without modification
+        res.status(200).send({
+            success: true,
+            id: doc.id,
+            ...data
+        });
+    } catch (error) {
+        console.error('Error fetching contact:', error);
+        res.status(500).send({ 
+            success: false,
+            message: 'Error fetching contact', 
+            error: error.message 
+        });
+    }
+};
+
+// Make this function more permissive for public use
+exports.addContact = async (req, res) => {
+    const { userId, contactInfo } = req.body;
+    
+    // Detailed logging
+    console.log('Add Contact called - Public endpoint');
+    console.log('Raw request body:', JSON.stringify(req.body, null, 2));
+    
+    if (!userId || !contactInfo) {
+        return res.status(400).send({ 
+            success: false,
+            message: 'User ID and contact info are required'
+        });
+    }
+
+    try {
+        // Get user's plan information
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data();
+
+        if (!userData) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        const contactRef = db.collection('contacts').doc(userId);
+        const doc = await contactRef.get();
+
+        let currentContacts = [];
+        if (doc.exists) {
+            currentContacts = doc.data().contactList || [];
+        }
+
+        // Check if free user has reached contact limit - Add strict validation
+        if (userData.plan === 'free' && currentContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
+            console.log(`Contact limit reached for free user ${userId}. Current contacts: ${currentContacts.length}`);
+            return res.status(403).send({
+                message: 'Contact limit reached',
+                error: 'FREE_PLAN_LIMIT_REACHED',
+                currentContacts: currentContacts.length,
+                limit: FREE_PLAN_CONTACT_LIMIT
+            });
+        }
+
+        const newContact = {
+            ...contactInfo,
+            email: contactInfo.email || '', // Add email field with fallback
+            createdAt: admin.firestore.Timestamp.now()
+        };
+
+        currentContacts.push(newContact);
+
+        await contactRef.set({
+            userId: db.doc(`users/${userId}`),
+            contactList: currentContacts
+        }, { merge: true });
+        
+        res.status(201).send({ 
+            message: 'Contact added successfully',
+            contactList: currentContacts.map(contact => ({
+                ...contact,
+                createdAt: formatDate(contact.createdAt)
+            })),
+            remainingContacts: userData.plan === 'free' ? 
+                FREE_PLAN_CONTACT_LIMIT - currentContacts.length : 
+                'unlimited'
+        });
+    } catch (error) {
+        console.error('Error adding contact:', error);
+        res.status(500).send({ 
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.saveContactInfo = async (req, res) => {
+    const { userId, contactInfo } = req.body;
+    
+    // Additional logging at the start
+    console.log('Save contact info request received:', { userId, contactInfo });
+    
+    if (!userId || !contactInfo) {
+        return res.status(400).send({ 
+            success: false,
+            message: 'User ID and contact info are required'
+        });
+    }
+
+    try {
+        // Get user's plan information
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data();
+
+        if (!userData) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        // Get current contacts count
+        const contactsRef = db.collection('contacts').doc(userId);
+        const contactsDoc = await contactsRef.get();
+        
+        // Fix contactList vs contactsList inconsistency
+        let existingContacts = [];
+        if (contactsDoc.exists) {
+            // Try to get contactList first, then fall back to contactsList for backward compatibility
+            existingContacts = contactsDoc.data().contactList || contactsDoc.data().contactsList || [];
+        }
+        
+        if (!Array.isArray(existingContacts)) existingContacts = [];
+
+        // Check if free user has reached contact limit - Improve validation
+        if (userData.plan === 'free' && existingContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
+            console.log(`Contact limit reached for free user ${userId}. Current contacts: ${existingContacts.length}`);
+            return res.status(403).send({
+                message: 'Contact limit reached',
+                error: 'FREE_PLAN_LIMIT_REACHED',
+                currentContacts: existingContacts.length,
+                limit: FREE_PLAN_CONTACT_LIMIT
+            });
+        }
+
+        // Force-type the email field as string to avoid any type conversions
+        const contactEmail = String(contactInfo.email || '');
+        console.log('Processed email value:', contactEmail);
+        
+        // Create contact with explicit field assignment - no object spread which could lose properties
+        const newContact = {
+            name: String(contactInfo.name || ''),
+            surname: String(contactInfo.surname || ''),
+            phone: String(contactInfo.phone || ''),
+            email: contactEmail, // Explicitly assign email
+            howWeMet: String(contactInfo.howWeMet || ''),
+            createdAt: admin.firestore.Timestamp.now()
+        };
+        
+        console.log('Final contact object to save:', newContact);
+        
+        // Add to existing contacts
+        existingContacts.push(newContact);
+
+        // Log the final array before saving
+        console.log('Contact list to save (first few):', 
+            existingContacts.slice(-3).map(c => ({ ...c, createdAt: 'timestamp' }))
+        );
+
+        // Use contactList consistently
+        await contactsRef.set({
+            userId: db.doc(`users/${userId}`),
+            contactList: existingContacts
+        }, { merge: true });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact addition');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
+        // Send email notification if user has email
+        if (userData.email) {
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: userData.email,
+                subject: 'Someone Saved Your Contact Information',
+                html: `
+                    <h2>New Contact Added</h2>
+                    <p><strong>${contactInfo.name} ${contactInfo.surname}</strong> recently received your XS Card and has sent you their details:</p>
+                    <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                        <p><strong>Contact Details:</strong></p>
+                        <ul style="list-style: none; padding-left: 0;">
+                            <li><strong>Name:</strong> ${contactInfo.name}</li>
+                            <li><strong>Surname:</strong> ${contactInfo.surname}</li>
+                            <li><strong>Phone Number:</strong> ${contactInfo.phone}</li>
+                            <li><strong>Email:</strong> ${contactInfo.email || 'Not provided'}</li>
+                            <li><strong>How You Met:</strong> ${contactInfo.howWeMet}</li>
+                        </ul>
+                    </div>
+                    <p style="color: #666; font-size: 12px;">This is an automated notification from your XS Card application.</p>
+                    ${userData.plan === 'free' ? 
+                        `<p style="color: #ff4b6e;">You have ${FREE_PLAN_CONTACT_LIMIT - existingContacts.length} contacts remaining in your free plan.</p>` 
+                        : ''}
+                `
+            };
+
+            const mailResult = await sendMailWithStatus(mailOptions);
+            if (!mailResult.success) {
+                console.error('Failed to send email notification:', mailResult.error);
+            }
+        }
+
+        // Log successful contact save - use await directly
+        console.log('About to log contact creation activity');
+        await logActivity({
+            action: ACTIONS.CREATE,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            resourceId: contactsRef.id,
+            details: {
+                contactName: `${contactInfo.name} ${contactInfo.surname}`,
+                contactCount: existingContacts.length,
+                plan: userData.plan
+            }
+        });
+
+        // Make sure we're sending a success flag in the response for the frontend
+        res.status(200).send({ 
+            success: true,
+            message: 'Contact saved successfully',
+            // Return the saved contact for verification
+            savedContact: {
+                ...newContact,
+                createdAt: 'timestamp'
+            },
+            contactsCount: existingContacts.length,
+            remainingContacts: userData.plan === 'free' ? 
+                FREE_PLAN_CONTACT_LIMIT - existingContacts.length : 
+                'unlimited'
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'save_contact'
+            }
+        });
+        
+        console.error('Error saving contact info:', error);
+        res.status(500).send({ 
+            success: false,
+            message: 'Failed to save contact information',
+            error: error.message 
+        });
+    }
+};
+
+exports.updateContact = async (req, res) => {
+    const { id } = req.params;
+    const { contactInfo } = req.body;
+    
+    if (!contactInfo) {
+        return res.status(400).send({ message: 'Contact info is required' });
+    }
+
+    try {
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+
+        if (!doc.exists) {
+            return res.status(404).send({ message: 'Contact list not found' });
+        }
+
+        const currentContacts = doc.data().contactsList || [];
+        currentContacts.push({
+            ...contactInfo,
+            createdAt: new Date().toISOString()
+        });
+
+        await contactRef.update({
+            contactsList: currentContacts
+        });
+
+        res.status(200).send({ 
+            message: 'Contact list updated successfully',
+            updatedContacts: currentContacts
+        });
+    } catch (error) {
+        console.error('Error updating contacts:', error);
+        res.status(500).send({ 
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.deleteContact = async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🗑️ [ContactController] deleteContact - User ${requestingUserId} requesting to delete contacts for ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'delete', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Delete access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Delete access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        await contactRef.delete();
+        
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact list deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+        
+        // Log successful contact list deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_list',
+                contactCount: doc.data().contactList.length
+            }
+        });
+        
+        res.status(200).send({ 
+            message: 'Contact list deleted successfully',
+            deletedContactId: id
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_list'
+            }
+        });
+        
+        console.error('Delete contact error:', error);
+        res.status(500).send({ 
+            message: 'Failed to delete contact list',
+            error: error.message 
+        });
+    }
+};
+
+exports.deleteContactFromList = async (req, res) => {
+    const { id, index } = req.params;
+    const contactIndex = parseInt(index);
+    
+    console.log('Delete request received:', { id, index, contactIndex }); // Debug log
+
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🗑️ [ContactController] deleteContactFromList - User ${requestingUserId} requesting to delete contact ${contactIndex} from ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'delete', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Delete contact access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Delete contact access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            console.log('Document not found:', id);
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        const data = doc.data();
+        // Check if contactList exists (not contactsList)
+        const currentContacts = data.contactList || [];
+        
+        console.log('Current contacts:', { 
+            total: currentContacts.length, 
+            requestedIndex: contactIndex,
+            contacts: currentContacts
+        });
+
+        if (contactIndex < 0 || contactIndex >= currentContacts.length) {
+            console.log('Index out of range:', { contactIndex, length: currentContacts.length });
+            return res.status(400).send({ message: 'Contact index out of range' });
+        }
+
+        const deletedContact = currentContacts[contactIndex];
+        currentContacts.splice(contactIndex, 1);
+
+        await contactRef.update({
+            contactList: currentContacts // Note: using contactList, not contactsList
+        });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
+        // Log successful individual contact deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex,
+                contactName: deletedContact.name ? `${deletedContact.name} ${deletedContact.surname || ''}` : 'unnamed',
+                remainingContacts: currentContacts.length
+            }
+        });
+
+        console.log('Contact deleted successfully');
+        res.status(200).send({ 
+            message: 'Contact deleted successfully',
+            remainingContacts: currentContacts.length
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex
+            }
+        });
+        
+        console.error('Delete contact error:', error);
+        res.status(500).send({ 
+            message: 'Failed to delete contact',
+            error: error.message 
+        });
+    }
+};
+
+        // Get user's plan information
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data();
+
+        if (!userData) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        const contactRef = db.collection('contacts').doc(userId);
+        const doc = await contactRef.get();
+
+        let currentContacts = [];
+        if (doc.exists) {
+            currentContacts = doc.data().contactList || [];
+        }
+
+        // Check if free user has reached contact limit - Add strict validation
+        if (userData.plan === 'free' && currentContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
+            console.log(`Contact limit reached for free user ${userId}. Current contacts: ${currentContacts.length}`);
+            return res.status(403).send({
+                message: 'Contact limit reached',
+                error: 'FREE_PLAN_LIMIT_REACHED',
+                currentContacts: currentContacts.length,
+                limit: FREE_PLAN_CONTACT_LIMIT
+            });
+        }
+
+        const newContact = {
+            ...contactInfo,
+            email: contactInfo.email || '', // Add email field with fallback
+            createdAt: admin.firestore.Timestamp.now()
+        };
+
+        currentContacts.push(newContact);
+
+        await contactRef.set({
+            userId: db.doc(`users/${userId}`),
+            contactList: currentContacts
+        }, { merge: true });
+        
+        res.status(201).send({ 
+            message: 'Contact added successfully',
+            contactList: currentContacts.map(contact => ({
+                ...contact,
+                createdAt: formatDate(contact.createdAt)
+            })),
+            remainingContacts: userData.plan === 'free' ? 
+                FREE_PLAN_CONTACT_LIMIT - currentContacts.length : 
+                'unlimited'
+        });
+    } catch (error) {
+        console.error('Error adding contact:', error);
+        res.status(500).send({ 
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.saveContactInfo = async (req, res) => {
+    const { userId, contactInfo } = req.body;
+    
+    // Additional logging at the start
+    console.log('Save contact info request received:', { userId, contactInfo });
+    
+    if (!userId || !contactInfo) {
+        return res.status(400).send({ 
+            success: false,
+            message: 'User ID and contact info are required'
+        });
+    }
+
+    try {
+        // Get user's plan information
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data();
+
+        if (!userData) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        // Get current contacts count
+        const contactsRef = db.collection('contacts').doc(userId);
+        const contactsDoc = await contactsRef.get();
+        
+        // Fix contactList vs contactsList inconsistency
+        let existingContacts = [];
+        if (contactsDoc.exists) {
+            // Try to get contactList first, then fall back to contactsList for backward compatibility
+            existingContacts = contactsDoc.data().contactList || contactsDoc.data().contactsList || [];
+        }
+        
+        if (!Array.isArray(existingContacts)) existingContacts = [];
+
+        // Check if free user has reached contact limit - Improve validation
+        if (userData.plan === 'free' && existingContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
+            console.log(`Contact limit reached for free user ${userId}. Current contacts: ${existingContacts.length}`);
+            return res.status(403).send({
+                message: 'Contact limit reached',
+                error: 'FREE_PLAN_LIMIT_REACHED',
+                currentContacts: existingContacts.length,
+                limit: FREE_PLAN_CONTACT_LIMIT
+            });
+        }
+
+        // Force-type the email field as string to avoid any type conversions
+        const contactEmail = String(contactInfo.email || '');
+        console.log('Processed email value:', contactEmail);
+        
+        // Create contact with explicit field assignment - no object spread which could lose properties
+        const newContact = {
+            name: String(contactInfo.name || ''),
+            surname: String(contactInfo.surname || ''),
+            phone: String(contactInfo.phone || ''),
+            email: contactEmail, // Explicitly assign email
+            howWeMet: String(contactInfo.howWeMet || ''),
+            createdAt: admin.firestore.Timestamp.now()
+        };
+        
+        console.log('Final contact object to save:', newContact);
+        
+        // Add to existing contacts
+        existingContacts.push(newContact);
+
+        // Log the final array before saving
+        console.log('Contact list to save (first few):', 
+            existingContacts.slice(-3).map(c => ({ ...c, createdAt: 'timestamp' }))
+        );
+
+        // Use contactList consistently
+        await contactsRef.set({
+            userId: db.doc(`users/${userId}`),
+            contactList: existingContacts
+        }, { merge: true });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact addition');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
+        // Send email notification if user has email
+        if (userData.email) {
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: userData.email,
+                subject: 'Someone Saved Your Contact Information',
+                html: `
+                    <h2>New Contact Added</h2>
+                    <p><strong>${contactInfo.name} ${contactInfo.surname}</strong> recently received your XS Card and has sent you their details:</p>
+                    <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                        <p><strong>Contact Details:</strong></p>
+                        <ul style="list-style: none; padding-left: 0;">
+                            <li><strong>Name:</strong> ${contactInfo.name}</li>
+                            <li><strong>Surname:</strong> ${contactInfo.surname}</li>
+                            <li><strong>Phone Number:</strong> ${contactInfo.phone}</li>
+                            <li><strong>Email:</strong> ${contactInfo.email || 'Not provided'}</li>
+                            <li><strong>How You Met:</strong> ${contactInfo.howWeMet}</li>
+                        </ul>
+                    </div>
+                    <p style="color: #666; font-size: 12px;">This is an automated notification from your XS Card application.</p>
+                    ${userData.plan === 'free' ? 
+                        `<p style="color: #ff4b6e;">You have ${FREE_PLAN_CONTACT_LIMIT - existingContacts.length} contacts remaining in your free plan.</p>` 
+                        : ''}
+                `
+            };
+
+            const mailResult = await sendMailWithStatus(mailOptions);
+            if (!mailResult.success) {
+                console.error('Failed to send email notification:', mailResult.error);
+            }
+        }
+
+        // Log successful contact save - use await directly
+        console.log('About to log contact creation activity');
+        await logActivity({
+            action: ACTIONS.CREATE,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            resourceId: contactsRef.id,
+            details: {
+                contactName: `${contactInfo.name} ${contactInfo.surname}`,
+                contactCount: existingContacts.length,
+                plan: userData.plan
+            }
+        });
+
+        // Make sure we're sending a success flag in the response for the frontend
+        res.status(200).send({ 
+            success: true,
+            message: 'Contact saved successfully',
+            // Return the saved contact for verification
+            savedContact: {
+                ...newContact,
+                createdAt: 'timestamp'
+            },
+            contactsCount: existingContacts.length,
+            remainingContacts: userData.plan === 'free' ? 
+                FREE_PLAN_CONTACT_LIMIT - existingContacts.length : 
+                'unlimited'
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'save_contact'
+            }
+        });
+        
+        console.error('Error saving contact info:', error);
+        res.status(500).send({ 
+            success: false,
+            message: 'Failed to save contact information',
+            error: error.message 
+        });
+    }
+};
+
+exports.updateContact = async (req, res) => {
+    const { id } = req.params;
+    const { contactInfo } = req.body;
+    
+    if (!contactInfo) {
+        return res.status(400).send({ message: 'Contact info is required' });
+    }
+    
+    try {
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            return res.status(404).send({ message: 'Contact list not found' });
+        }
+
+        const currentContacts = doc.data().contactsList || [];
+        currentContacts.push({
+            ...contactInfo,
+            createdAt: new Date().toISOString()
+        });
+
+        await contactRef.update({
+            contactsList: currentContacts
+        });
+
+        res.status(200).send({ 
+            message: 'Contact list updated successfully',
+            updatedContacts: currentContacts
+        });
+    } catch (error) {
+        console.error('Error updating contacts:', error);
+        res.status(500).send({ 
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.deleteContact = async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🗑️ [ContactController] deleteContact - User ${requestingUserId} requesting to delete contacts for ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'delete', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Delete access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Delete access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        await contactRef.delete();
+        
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact list deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+        
+        // Log successful contact list deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_list',
+                contactCount: doc.data().contactList.length
+            }
+        });
+        
+        res.status(200).send({ 
+            message: 'Contact list deleted successfully',
+            deletedContactId: id
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_list'
+            }
+        });
+        
+        console.error('Delete contact error:', error);
+        res.status(500).send({ 
+            message: 'Failed to delete contact list',
+            error: error.message 
+        });
+    }
+};
+
+exports.deleteContactFromList = async (req, res) => {
+    const { id, index } = req.params;
+    const contactIndex = parseInt(index);
+    
+    console.log('Delete request received:', { id, index, contactIndex }); // Debug log
+
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🗑️ [ContactController] deleteContactFromList - User ${requestingUserId} requesting to delete contact ${contactIndex} from ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'delete', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Delete contact access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Delete contact access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            console.log('Document not found:', id);
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        const data = doc.data();
+        // Check if contactList exists (not contactsList)
+        const currentContacts = data.contactList || [];
+        
+        console.log('Current contacts:', { 
+            total: currentContacts.length, 
+            requestedIndex: contactIndex,
+            contacts: currentContacts
+        });
+
+        if (contactIndex < 0 || contactIndex >= currentContacts.length) {
+            console.log('Index out of range:', { contactIndex, length: currentContacts.length });
+            return res.status(400).send({ message: 'Contact index out of range' });
+        }
+
+        const deletedContact = currentContacts[contactIndex];
+        currentContacts.splice(contactIndex, 1);
+
+        await contactRef.update({
+            contactList: currentContacts // Note: using contactList, not contactsList
+        });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
+        // Log successful individual contact deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex,
+                contactName: deletedContact.name ? `${deletedContact.name} ${deletedContact.surname || ''}` : 'unnamed',
+                remainingContacts: currentContacts.length
+            }
+        });
+
+        console.log('Contact deleted successfully');
+        res.status(200).send({ 
+            message: 'Contact deleted successfully',
+            remainingContacts: currentContacts.length
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex
+            }
+        });
+        
+        console.error('Delete contact error:', error);
+        res.status(500).send({ 
+            message: 'Failed to delete contact',
+            error: error.message 
+        });
+    }
+};
+
+        // Get user's plan information
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data();
+
+        if (!userData) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        const contactRef = db.collection('contacts').doc(userId);
+        const doc = await contactRef.get();
+
+        let currentContacts = [];
+        if (doc.exists) {
+            currentContacts = doc.data().contactList || [];
+        }
+
+        // Check if free user has reached contact limit - Add strict validation
+        if (userData.plan === 'free' && currentContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
+            console.log(`Contact limit reached for free user ${userId}. Current contacts: ${currentContacts.length}`);
+            return res.status(403).send({
+                message: 'Contact limit reached',
+                error: 'FREE_PLAN_LIMIT_REACHED',
+                currentContacts: currentContacts.length,
+                limit: FREE_PLAN_CONTACT_LIMIT
+            });
+        }
+
+        const newContact = {
+            ...contactInfo,
+            email: contactInfo.email || '', // Add email field with fallback
+            createdAt: admin.firestore.Timestamp.now()
+        };
+
+        currentContacts.push(newContact);
+
+        await contactRef.set({
+            userId: db.doc(`users/${userId}`),
+            contactList: currentContacts
+        }, { merge: true });
+        
+        res.status(201).send({ 
+            message: 'Contact added successfully',
+            contactList: currentContacts.map(contact => ({
+                ...contact,
+                createdAt: formatDate(contact.createdAt)
+            })),
+            remainingContacts: userData.plan === 'free' ? 
+                FREE_PLAN_CONTACT_LIMIT - currentContacts.length : 
+                'unlimited'
+        });
+    } catch (error) {
+        console.error('Error adding contact:', error);
+        res.status(500).send({ 
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.saveContactInfo = async (req, res) => {
+    const { userId, contactInfo } = req.body;
+    
+    // Additional logging at the start
+    console.log('Save contact info request received:', { userId, contactInfo });
+    
+    if (!userId || !contactInfo) {
+        return res.status(400).send({ 
+            success: false,
+            message: 'User ID and contact info are required'
+        });
+    }
+
+    try {
+        // Get user's plan information
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data();
+
+        if (!userData) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        // Get current contacts count
+        const contactsRef = db.collection('contacts').doc(userId);
+        const contactsDoc = await contactsRef.get();
+        
+        // Fix contactList vs contactsList inconsistency
+        let existingContacts = [];
+        if (contactsDoc.exists) {
+            // Try to get contactList first, then fall back to contactsList for backward compatibility
+            existingContacts = contactsDoc.data().contactList || contactsDoc.data().contactsList || [];
+        }
+        
+        if (!Array.isArray(existingContacts)) existingContacts = [];
+
+        // Check if free user has reached contact limit - Improve validation
+        if (userData.plan === 'free' && existingContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
+            console.log(`Contact limit reached for free user ${userId}. Current contacts: ${existingContacts.length}`);
+            return res.status(403).send({
+                message: 'Contact limit reached',
+                error: 'FREE_PLAN_LIMIT_REACHED',
+                currentContacts: existingContacts.length,
+                limit: FREE_PLAN_CONTACT_LIMIT
+            });
+        }
+
+        // Force-type the email field as string to avoid any type conversions
+        const contactEmail = String(contactInfo.email || '');
+        console.log('Processed email value:', contactEmail);
+        
+        // Create contact with explicit field assignment - no object spread which could lose properties
+        const newContact = {
+            name: String(contactInfo.name || ''),
+            surname: String(contactInfo.surname || ''),
+            phone: String(contactInfo.phone || ''),
+            email: contactEmail, // Explicitly assign email
+            howWeMet: String(contactInfo.howWeMet || ''),
+            createdAt: admin.firestore.Timestamp.now()
+        };
+        
+        console.log('Final contact object to save:', newContact);
+        
+        // Add to existing contacts
+        existingContacts.push(newContact);
+
+        // Log the final array before saving
+        console.log('Contact list to save (first few):', 
+            existingContacts.slice(-3).map(c => ({ ...c, createdAt: 'timestamp' }))
+        );
+
+        // Use contactList consistently
+        await contactsRef.set({
+            userId: db.doc(`users/${userId}`),
+            contactList: existingContacts
+        }, { merge: true });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact addition');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
+        // Send email notification if user has email
+        if (userData.email) {
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: userData.email,
+                subject: 'Someone Saved Your Contact Information',
+                html: `
+                    <h2>New Contact Added</h2>
+                    <p><strong>${contactInfo.name} ${contactInfo.surname}</strong> recently received your XS Card and has sent you their details:</p>
+                    <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                        <p><strong>Contact Details:</strong></p>
+                        <ul style="list-style: none; padding-left: 0;">
+                            <li><strong>Name:</strong> ${contactInfo.name}</li>
+                            <li><strong>Surname:</strong> ${contactInfo.surname}</li>
+                            <li><strong>Phone Number:</strong> ${contactInfo.phone}</li>
+                            <li><strong>Email:</strong> ${contactInfo.email || 'Not provided'}</li>
+                            <li><strong>How You Met:</strong> ${contactInfo.howWeMet}</li>
+                        </ul>
+                    </div>
+                    <p style="color: #666; font-size: 12px;">This is an automated notification from your XS Card application.</p>
+                    ${userData.plan === 'free' ? 
+                        `<p style="color: #ff4b6e;">You have ${FREE_PLAN_CONTACT_LIMIT - existingContacts.length} contacts remaining in your free plan.</p>` 
+                        : ''}
+                `
+            };
+
+            const mailResult = await sendMailWithStatus(mailOptions);
+            if (!mailResult.success) {
+                console.error('Failed to send email notification:', mailResult.error);
+            }
+        }
+
+        // Log successful contact save - use await directly
+        console.log('About to log contact creation activity');
+        await logActivity({
+            action: ACTIONS.CREATE,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            resourceId: contactsRef.id,
+            details: {
+                contactName: `${contactInfo.name} ${contactInfo.surname}`,
+                contactCount: existingContacts.length,
+                plan: userData.plan
+            }
+        });
+
+        // Make sure we're sending a success flag in the response for the frontend
+        res.status(200).send({ 
+            success: true,
+            message: 'Contact saved successfully',
+            // Return the saved contact for verification
+            savedContact: {
+                ...newContact,
+                createdAt: 'timestamp'
+            },
+            contactsCount: existingContacts.length,
+            remainingContacts: userData.plan === 'free' ? 
+                FREE_PLAN_CONTACT_LIMIT - existingContacts.length : 
+                'unlimited'
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'save_contact'
+            }
+        });
+        
+        console.error('Error saving contact info:', error);
+        res.status(500).send({ 
+            success: false,
+            message: 'Failed to save contact information',
+            error: error.message 
+        });
+    }
+};
+
+exports.updateContact = async (req, res) => {
+    const { id } = req.params;
+    const { contactInfo } = req.body;
+    
+    if (!contactInfo) {
+        return res.status(400).send({ message: 'Contact info is required' });
+    }
+
+    try {
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+
+        if (!doc.exists) {
+            return res.status(404).send({ message: 'Contact list not found' });
+        }
+
+        const currentContacts = doc.data().contactsList || [];
+        currentContacts.push({
+            ...contactInfo,
+            createdAt: new Date().toISOString()
+        });
+
+        await contactRef.update({
+            contactsList: currentContacts
+        });
+
+        res.status(200).send({ 
+            message: 'Contact list updated successfully',
+            updatedContacts: currentContacts
+        });
+    } catch (error) {
+        console.error('Error updating contacts:', error);
+        res.status(500).send({ 
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.deleteContact = async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🗑️ [ContactController] deleteContact - User ${requestingUserId} requesting to delete contacts for ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'delete', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Delete access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Delete access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        await contactRef.delete();
+        
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact list deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+        
+        // Log successful contact list deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_list',
+                contactCount: doc.data().contactList.length
+            }
+        });
+        
+        res.status(200).send({ 
+            message: 'Contact list deleted successfully',
+            deletedContactId: id
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_list'
+            }
+        });
+        
+        console.error('Delete contact error:', error);
+        res.status(500).send({ 
+            message: 'Failed to delete contact list',
+            error: error.message 
+        });
+    }
+};
+
+exports.deleteContactFromList = async (req, res) => {
+    const { id, index } = req.params;
+    const contactIndex = parseInt(index);
+    
+    console.log('Delete request received:', { id, index, contactIndex }); // Debug log
+
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🗑️ [ContactController] deleteContactFromList - User ${requestingUserId} requesting to delete contact ${contactIndex} from ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'delete', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Delete contact access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Delete contact access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            console.log('Document not found:', id);
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        const data = doc.data();
+        // Check if contactList exists (not contactsList)
+        const currentContacts = data.contactList || [];
+        
+        console.log('Current contacts:', { 
+            total: currentContacts.length, 
+            requestedIndex: contactIndex,
+            contacts: currentContacts
+        });
+
+        if (contactIndex < 0 || contactIndex >= currentContacts.length) {
+            console.log('Index out of range:', { contactIndex, length: currentContacts.length });
+            return res.status(400).send({ message: 'Contact index out of range' });
+        }
+
+        const deletedContact = currentContacts[contactIndex];
+        currentContacts.splice(contactIndex, 1);
+
+        await contactRef.update({
+            contactList: currentContacts // Note: using contactList, not contactsList
+        });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
+        // Log successful individual contact deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex,
+                contactName: deletedContact.name ? `${deletedContact.name} ${deletedContact.surname || ''}` : 'unnamed',
+                remainingContacts: currentContacts.length
+            }
+        });
+
+        console.log('Contact deleted successfully');
+        res.status(200).send({ 
+            message: 'Contact deleted successfully',
+            remainingContacts: currentContacts.length
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex
+            }
+        });
+        
+        console.error('Delete contact error:', error);
+        res.status(500).send({ 
+            message: 'Failed to delete contact',
+            error: error.message 
+        });
+    }
+};
+            success: false,
+            message: 'Error fetching contact', 
+            error: error.message 
+        });
+    }
+};
+
+// Make this function more permissive for public use
+exports.addContact = async (req, res) => {
+    const { userId, contactInfo } = req.body;
+    
+    // Detailed logging
+    console.log('Add Contact called - Public endpoint');
+    console.log('Raw request body:', JSON.stringify(req.body, null, 2));
+    
+    if (!userId || !contactInfo) {
+        return res.status(400).send({ 
+            success: false,
+            message: 'User ID and contact info are required'
+        });
+    }
+
+    try {
+        // Get user's plan information
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data();
+
+        if (!userData) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        const contactRef = db.collection('contacts').doc(userId);
+        const doc = await contactRef.get();
+
+        let currentContacts = [];
+        if (doc.exists) {
+            currentContacts = doc.data().contactList || [];
+        }
+
+        // Check if free user has reached contact limit - Add strict validation
+        if (userData.plan === 'free' && currentContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
+            console.log(`Contact limit reached for free user ${userId}. Current contacts: ${currentContacts.length}`);
+            return res.status(403).send({
+                message: 'Contact limit reached',
+                error: 'FREE_PLAN_LIMIT_REACHED',
+                currentContacts: currentContacts.length,
+                limit: FREE_PLAN_CONTACT_LIMIT
+            });
+        }
+
+        const newContact = {
+            ...contactInfo,
+            email: contactInfo.email || '', // Add email field with fallback
+            createdAt: admin.firestore.Timestamp.now()
+        };
+
+        currentContacts.push(newContact);
+
+        await contactRef.set({
+            userId: db.doc(`users/${userId}`),
+            contactList: currentContacts
+        }, { merge: true });
+        
+        res.status(201).send({ 
+            message: 'Contact added successfully',
+            contactList: currentContacts.map(contact => ({
+                ...contact,
+                createdAt: formatDate(contact.createdAt)
+            })),
+            remainingContacts: userData.plan === 'free' ? 
+                FREE_PLAN_CONTACT_LIMIT - currentContacts.length : 
+                'unlimited'
+        });
+    } catch (error) {
+        console.error('Error adding contact:', error);
+        res.status(500).send({ 
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.saveContactInfo = async (req, res) => {
+    const { userId, contactInfo } = req.body;
+    
+    // Additional logging at the start
+    console.log('Save contact info request received:', { userId, contactInfo });
+    
+    if (!userId || !contactInfo) {
+        return res.status(400).send({ 
+            success: false,
+            message: 'User ID and contact info are required'
+        });
+    }
+
+    try {
+        // Get user's plan information
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data();
+
+        if (!userData) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        // Get current contacts count
+        const contactsRef = db.collection('contacts').doc(userId);
+        const contactsDoc = await contactsRef.get();
+        
+        // Fix contactList vs contactsList inconsistency
+        let existingContacts = [];
+        if (contactsDoc.exists) {
+            // Try to get contactList first, then fall back to contactsList for backward compatibility
+            existingContacts = contactsDoc.data().contactList || contactsDoc.data().contactsList || [];
+        }
+        
+        if (!Array.isArray(existingContacts)) existingContacts = [];
+
+        // Check if free user has reached contact limit - Improve validation
+        if (userData.plan === 'free' && existingContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
+            console.log(`Contact limit reached for free user ${userId}. Current contacts: ${existingContacts.length}`);
+            return res.status(403).send({
+                message: 'Contact limit reached',
+                error: 'FREE_PLAN_LIMIT_REACHED',
+                currentContacts: existingContacts.length,
+                limit: FREE_PLAN_CONTACT_LIMIT
+            });
+        }
+
+        // Force-type the email field as string to avoid any type conversions
+        const contactEmail = String(contactInfo.email || '');
+        console.log('Processed email value:', contactEmail);
+        
+        // Create contact with explicit field assignment - no object spread which could lose properties
+        const newContact = {
+            name: String(contactInfo.name || ''),
+            surname: String(contactInfo.surname || ''),
+            phone: String(contactInfo.phone || ''),
+            email: contactEmail, // Explicitly assign email
+            howWeMet: String(contactInfo.howWeMet || ''),
+            createdAt: admin.firestore.Timestamp.now()
+        };
+        
+        console.log('Final contact object to save:', newContact);
+        
+        // Add to existing contacts
+        existingContacts.push(newContact);
+
+        // Log the final array before saving
+        console.log('Contact list to save (first few):', 
+            existingContacts.slice(-3).map(c => ({ ...c, createdAt: 'timestamp' }))
+        );
+
+        // Use contactList consistently
+        await contactsRef.set({
+            userId: db.doc(`users/${userId}`),
+            contactList: existingContacts
+        }, { merge: true });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact addition');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
+        // Send email notification if user has email
+        if (userData.email) {
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: userData.email,
+                subject: 'Someone Saved Your Contact Information',
+                html: `
+                    <h2>New Contact Added</h2>
+                    <p><strong>${contactInfo.name} ${contactInfo.surname}</strong> recently received your XS Card and has sent you their details:</p>
+                    <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                        <p><strong>Contact Details:</strong></p>
+                        <ul style="list-style: none; padding-left: 0;">
+                            <li><strong>Name:</strong> ${contactInfo.name}</li>
+                            <li><strong>Surname:</strong> ${contactInfo.surname}</li>
+                            <li><strong>Phone Number:</strong> ${contactInfo.phone}</li>
+                            <li><strong>Email:</strong> ${contactInfo.email || 'Not provided'}</li>
+                            <li><strong>How You Met:</strong> ${contactInfo.howWeMet}</li>
+                        </ul>
+                    </div>
+                    <p style="color: #666; font-size: 12px;">This is an automated notification from your XS Card application.</p>
+                    ${userData.plan === 'free' ? 
+                        `<p style="color: #ff4b6e;">You have ${FREE_PLAN_CONTACT_LIMIT - existingContacts.length} contacts remaining in your free plan.</p>` 
+                        : ''}
+                `
+            };
+
+            const mailResult = await sendMailWithStatus(mailOptions);
+            if (!mailResult.success) {
+                console.error('Failed to send email notification:', mailResult.error);
+            }
+        }
+
+        // Log successful contact save - use await directly
+        console.log('About to log contact creation activity');
+        await logActivity({
+            action: ACTIONS.CREATE,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            resourceId: contactsRef.id,
+            details: {
+                contactName: `${contactInfo.name} ${contactInfo.surname}`,
+                contactCount: existingContacts.length,
+                plan: userData.plan
+            }
+        });
+
+        // Make sure we're sending a success flag in the response for the frontend
+        res.status(200).send({ 
+            success: true,
+            message: 'Contact saved successfully',
+            // Return the saved contact for verification
+            savedContact: {
+                ...newContact,
+                createdAt: 'timestamp'
+            },
+            contactsCount: existingContacts.length,
+            remainingContacts: userData.plan === 'free' ? 
+                FREE_PLAN_CONTACT_LIMIT - existingContacts.length : 
+                'unlimited'
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'save_contact'
+            }
+        });
+        
+        console.error('Error saving contact info:', error);
+        res.status(500).send({ 
+            success: false,
+            message: 'Failed to save contact information',
+            error: error.message 
+        });
+    }
+};
+
+exports.updateContact = async (req, res) => {
+    const { id } = req.params;
+    const { contactInfo } = req.body;
+    
+    if (!contactInfo) {
+        return res.status(400).send({ message: 'Contact info is required' });
+    }
+
+    try {
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+
+        if (!doc.exists) {
+            return res.status(404).send({ message: 'Contact list not found' });
+        }
+
+        const currentContacts = doc.data().contactsList || [];
+        currentContacts.push({
+            ...contactInfo,
+            createdAt: new Date().toISOString()
+        });
+
+        await contactRef.update({
+            contactsList: currentContacts
+        });
+
+        res.status(200).send({ 
+            message: 'Contact list updated successfully',
+            updatedContacts: currentContacts
+        });
+    } catch (error) {
+        console.error('Error updating contacts:', error);
+        res.status(500).send({ 
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.deleteContact = async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🗑️ [ContactController] deleteContact - User ${requestingUserId} requesting to delete contacts for ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'delete', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Delete access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Delete access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        await contactRef.delete();
+        
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact list deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+        
+        // Log successful contact list deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_list',
+                contactCount: doc.data().contactList.length
+            }
+        });
+        
+        res.status(200).send({ 
+            message: 'Contact list deleted successfully',
+            deletedContactId: id
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_list'
+            }
+        });
+        
+        console.error('Delete contact error:', error);
+        res.status(500).send({ 
+            message: 'Failed to delete contact list',
+            error: error.message 
+        });
+    }
+};
+
+exports.deleteContactFromList = async (req, res) => {
+    const { id, index } = req.params;
+    const contactIndex = parseInt(index);
+    
+    console.log('Delete request received:', { id, index, contactIndex }); // Debug log
+
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🗑️ [ContactController] deleteContactFromList - User ${requestingUserId} requesting to delete contact ${contactIndex} from ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'delete', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Delete contact access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Delete contact access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            console.log('Document not found:', id);
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        const data = doc.data();
+        // Check if contactList exists (not contactsList)
+        const currentContacts = data.contactList || [];
+        
+        console.log('Current contacts:', { 
+            total: currentContacts.length, 
+            requestedIndex: contactIndex,
+            contacts: currentContacts
+        });
+
+        if (contactIndex < 0 || contactIndex >= currentContacts.length) {
+            console.log('Index out of range:', { contactIndex, length: currentContacts.length });
+            return res.status(400).send({ message: 'Contact index out of range' });
+        }
+
+        const deletedContact = currentContacts[contactIndex];
+        currentContacts.splice(contactIndex, 1);
+
+        await contactRef.update({
+            contactList: currentContacts // Note: using contactList, not contactsList
+        });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
+        // Log successful individual contact deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex,
+                contactName: deletedContact.name ? `${deletedContact.name} ${deletedContact.surname || ''}` : 'unnamed',
+                remainingContacts: currentContacts.length
+            }
+        });
+
+        console.log('Contact deleted successfully');
+        res.status(200).send({ 
+            message: 'Contact deleted successfully',
+            remainingContacts: currentContacts.length
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex
+            }
+        });
+        
+        console.error('Delete contact error:', error);
+        res.status(500).send({ 
+            message: 'Failed to delete contact',
+            error: error.message 
+        });
+    }
+};
+
+        // Get user's plan information
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data();
+
+        if (!userData) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        const contactRef = db.collection('contacts').doc(userId);
+        const doc = await contactRef.get();
+
+        let currentContacts = [];
+        if (doc.exists) {
+            currentContacts = doc.data().contactList || [];
+        }
+
+        // Check if free user has reached contact limit - Add strict validation
+        if (userData.plan === 'free' && currentContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
+            console.log(`Contact limit reached for free user ${userId}. Current contacts: ${currentContacts.length}`);
+            return res.status(403).send({
+                message: 'Contact limit reached',
+                error: 'FREE_PLAN_LIMIT_REACHED',
+                currentContacts: currentContacts.length,
+                limit: FREE_PLAN_CONTACT_LIMIT
+            });
+        }
+
+        const newContact = {
+            ...contactInfo,
+            email: contactInfo.email || '', // Add email field with fallback
+            createdAt: admin.firestore.Timestamp.now()
+        };
+
+        currentContacts.push(newContact);
+
+        await contactRef.set({
+            userId: db.doc(`users/${userId}`),
+            contactList: currentContacts
+        }, { merge: true });
+        
+        res.status(201).send({ 
+            message: 'Contact added successfully',
+            contactList: currentContacts.map(contact => ({
+                ...contact,
+                createdAt: formatDate(contact.createdAt)
+            })),
+            remainingContacts: userData.plan === 'free' ? 
+                FREE_PLAN_CONTACT_LIMIT - currentContacts.length : 
+                'unlimited'
+        });
+    } catch (error) {
+        console.error('Error adding contact:', error);
+        res.status(500).send({ 
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.saveContactInfo = async (req, res) => {
+    const { userId, contactInfo } = req.body;
+    
+    // Additional logging at the start
+    console.log('Save contact info request received:', { userId, contactInfo });
+    
+    if (!userId || !contactInfo) {
+        return res.status(400).send({ 
+            success: false,
+            message: 'User ID and contact info are required'
+        });
+    }
+
+    try {
+        // Get user's plan information
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data();
+
+        if (!userData) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        // Get current contacts count
+        const contactsRef = db.collection('contacts').doc(userId);
+        const contactsDoc = await contactsRef.get();
+        
+        // Fix contactList vs contactsList inconsistency
+        let existingContacts = [];
+        if (contactsDoc.exists) {
+            // Try to get contactList first, then fall back to contactsList for backward compatibility
+            existingContacts = contactsDoc.data().contactList || contactsDoc.data().contactsList || [];
+        }
+        
+        if (!Array.isArray(existingContacts)) existingContacts = [];
+
+        // Check if free user has reached contact limit - Improve validation
+        if (userData.plan === 'free' && existingContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
+            console.log(`Contact limit reached for free user ${userId}. Current contacts: ${existingContacts.length}`);
+            return res.status(403).send({
+                message: 'Contact limit reached',
+                error: 'FREE_PLAN_LIMIT_REACHED',
+                currentContacts: existingContacts.length,
+                limit: FREE_PLAN_CONTACT_LIMIT
+            });
+        }
+
+        // Force-type the email field as string to avoid any type conversions
+        const contactEmail = String(contactInfo.email || '');
+        console.log('Processed email value:', contactEmail);
+        
+        // Create contact with explicit field assignment - no object spread which could lose properties
+        const newContact = {
+            name: String(contactInfo.name || ''),
+            surname: String(contactInfo.surname || ''),
+            phone: String(contactInfo.phone || ''),
+            email: contactEmail, // Explicitly assign email
+            howWeMet: String(contactInfo.howWeMet || ''),
+            createdAt: admin.firestore.Timestamp.now()
+        };
+        
+        console.log('Final contact object to save:', newContact);
+        
+        // Add to existing contacts
+        existingContacts.push(newContact);
+
+        // Log the final array before saving
+        console.log('Contact list to save (first few):', 
+            existingContacts.slice(-3).map(c => ({ ...c, createdAt: 'timestamp' }))
+        );
+
+        // Use contactList consistently
+        await contactsRef.set({
+            userId: db.doc(`users/${userId}`),
+            contactList: existingContacts
+        }, { merge: true });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact addition');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
+        // Send email notification if user has email
+        if (userData.email) {
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: userData.email,
+                subject: 'Someone Saved Your Contact Information',
+                html: `
+                    <h2>New Contact Added</h2>
+                    <p><strong>${contactInfo.name} ${contactInfo.surname}</strong> recently received your XS Card and has sent you their details:</p>
+                    <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                        <p><strong>Contact Details:</strong></p>
+                        <ul style="list-style: none; padding-left: 0;">
+                            <li><strong>Name:</strong> ${contactInfo.name}</li>
+                            <li><strong>Surname:</strong> ${contactInfo.surname}</li>
+                            <li><strong>Phone Number:</strong> ${contactInfo.phone}</li>
+                            <li><strong>Email:</strong> ${contactInfo.email || 'Not provided'}</li>
+                            <li><strong>How You Met:</strong> ${contactInfo.howWeMet}</li>
+                        </ul>
+                    </div>
+                    <p style="color: #666; font-size: 12px;">This is an automated notification from your XS Card application.</p>
+                    ${userData.plan === 'free' ? 
+                        `<p style="color: #ff4b6e;">You have ${FREE_PLAN_CONTACT_LIMIT - existingContacts.length} contacts remaining in your free plan.</p>` 
+                        : ''}
+                `
+            };
+
+            const mailResult = await sendMailWithStatus(mailOptions);
+            if (!mailResult.success) {
+                console.error('Failed to send email notification:', mailResult.error);
+            }
+        }
+
+        // Log successful contact save - use await directly
+        console.log('About to log contact creation activity');
+        await logActivity({
+            action: ACTIONS.CREATE,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            resourceId: contactsRef.id,
+            details: {
+                contactName: `${contactInfo.name} ${contactInfo.surname}`,
+                contactCount: existingContacts.length,
+                plan: userData.plan
+            }
+        });
+
+        // Make sure we're sending a success flag in the response for the frontend
+        res.status(200).send({ 
+            success: true,
+            message: 'Contact saved successfully',
+            // Return the saved contact for verification
+            savedContact: {
+                ...newContact,
+                createdAt: 'timestamp'
+            },
+            contactsCount: existingContacts.length,
+            remainingContacts: userData.plan === 'free' ? 
+                FREE_PLAN_CONTACT_LIMIT - existingContacts.length : 
+                'unlimited'
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'save_contact'
+            }
+        });
+        
+        console.error('Error saving contact info:', error);
+        res.status(500).send({ 
+            success: false,
+            message: 'Failed to save contact information',
+            error: error.message 
+        });
+    }
+};
+
+exports.updateContact = async (req, res) => {
+    const { id } = req.params;
+    const { contactInfo } = req.body;
+    
+    if (!contactInfo) {
+        return res.status(400).send({ message: 'Contact info is required' });
+    }
+
+    try {
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+
+        if (!doc.exists) {
+            return res.status(404).send({ message: 'Contact list not found' });
+        }
+
+        const currentContacts = doc.data().contactsList || [];
+        currentContacts.push({
+            ...contactInfo,
+            createdAt: new Date().toISOString()
+        });
+
+        await contactRef.update({
+            contactsList: currentContacts
+        });
+
+        res.status(200).send({ 
+            message: 'Contact list updated successfully',
+            updatedContacts: currentContacts
+        });
+    } catch (error) {
+        console.error('Error updating contacts:', error);
+        res.status(500).send({ 
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.deleteContact = async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🗑️ [ContactController] deleteContact - User ${requestingUserId} requesting to delete contacts for ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'delete', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Delete access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Delete access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        await contactRef.delete();
+        
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact list deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+        
+        // Log successful contact list deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_list',
+                contactCount: doc.data().contactList.length
+            }
+        });
+        
+        res.status(200).send({ 
+            message: 'Contact list deleted successfully',
+            deletedContactId: id
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_list'
+            }
+        });
+        
+        console.error('Delete contact error:', error);
+        res.status(500).send({ 
+            message: 'Failed to delete contact list',
+            error: error.message 
+        });
+    }
+};
+
+exports.deleteContactFromList = async (req, res) => {
+    const { id, index } = req.params;
+    const contactIndex = parseInt(index);
+    
+    console.log('Delete request received:', { id, index, contactIndex }); // Debug log
+
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🗑️ [ContactController] deleteContactFromList - User ${requestingUserId} requesting to delete contact ${contactIndex} from ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'delete', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Delete contact access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Delete contact access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            console.log('Document not found:', id);
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        const data = doc.data();
+        // Check if contactList exists (not contactsList)
+        const currentContacts = data.contactList || [];
+        
+        console.log('Current contacts:', { 
+            total: currentContacts.length, 
+            requestedIndex: contactIndex,
+            contacts: currentContacts
+        });
+
+        if (contactIndex < 0 || contactIndex >= currentContacts.length) {
+            console.log('Index out of range:', { contactIndex, length: currentContacts.length });
+            return res.status(400).send({ message: 'Contact index out of range' });
+        }
+
+        const deletedContact = currentContacts[contactIndex];
+        currentContacts.splice(contactIndex, 1);
+
+        await contactRef.update({
+            contactList: currentContacts // Note: using contactList, not contactsList
+        });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
+        // Log successful individual contact deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex,
+                contactName: deletedContact.name ? `${deletedContact.name} ${deletedContact.surname || ''}` : 'unnamed',
+                remainingContacts: currentContacts.length
+            }
+        });
+
+        console.log('Contact deleted successfully');
+        res.status(200).send({ 
+            message: 'Contact deleted successfully',
+            remainingContacts: currentContacts.length
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex
+            }
+        });
+        
+        console.error('Delete contact error:', error);
+        res.status(500).send({ 
+            message: 'Failed to delete contact',
+            error: error.message 
+        });
+    }
+};
+
+        // Get user's plan information
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data();
+
+        if (!userData) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        const contactRef = db.collection('contacts').doc(userId);
+        const doc = await contactRef.get();
+
+        let currentContacts = [];
+        if (doc.exists) {
+            currentContacts = doc.data().contactList || [];
+        }
+
+        // Check if free user has reached contact limit - Add strict validation
+        if (userData.plan === 'free' && currentContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
+            console.log(`Contact limit reached for free user ${userId}. Current contacts: ${currentContacts.length}`);
+            return res.status(403).send({
+                message: 'Contact limit reached',
+                error: 'FREE_PLAN_LIMIT_REACHED',
+                currentContacts: currentContacts.length,
+                limit: FREE_PLAN_CONTACT_LIMIT
+            });
+        }
+
+        const newContact = {
+            ...contactInfo,
+            email: contactInfo.email || '', // Add email field with fallback
+            createdAt: admin.firestore.Timestamp.now()
+        };
+
+        currentContacts.push(newContact);
+
+        await contactRef.set({
+            userId: db.doc(`users/${userId}`),
+            contactList: currentContacts
+        }, { merge: true });
+        
+        res.status(201).send({ 
+            message: 'Contact added successfully',
+            contactList: currentContacts.map(contact => ({
+                ...contact,
+                createdAt: formatDate(contact.createdAt)
+            })),
+            remainingContacts: userData.plan === 'free' ? 
+                FREE_PLAN_CONTACT_LIMIT - currentContacts.length : 
+                'unlimited'
+        });
+    } catch (error) {
+        console.error('Error adding contact:', error);
+        res.status(500).send({ 
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.saveContactInfo = async (req, res) => {
+    const { userId, contactInfo } = req.body;
+    
+    // Additional logging at the start
+    console.log('Save contact info request received:', { userId, contactInfo });
+    
+    if (!userId || !contactInfo) {
+        return res.status(400).send({ 
+            success: false,
+            message: 'User ID and contact info are required'
+        });
+    }
+
+    try {
+        // Get user's plan information
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.data();
+
+        if (!userData) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        // Get current contacts count
+        const contactsRef = db.collection('contacts').doc(userId);
+        const contactsDoc = await contactsRef.get();
+        
+        // Fix contactList vs contactsList inconsistency
+        let existingContacts = [];
+        if (contactsDoc.exists) {
+            // Try to get contactList first, then fall back to contactsList for backward compatibility
+            existingContacts = contactsDoc.data().contactList || contactsDoc.data().contactsList || [];
+        }
+        
+        if (!Array.isArray(existingContacts)) existingContacts = [];
+
+        // Check if free user has reached contact limit - Improve validation
+        if (userData.plan === 'free' && existingContacts.length >= FREE_PLAN_CONTACT_LIMIT) {
+            console.log(`Contact limit reached for free user ${userId}. Current contacts: ${existingContacts.length}`);
+            return res.status(403).send({
+                message: 'Contact limit reached',
+                error: 'FREE_PLAN_LIMIT_REACHED',
+                currentContacts: existingContacts.length,
+                limit: FREE_PLAN_CONTACT_LIMIT
+            });
+        }
+
+        // Force-type the email field as string to avoid any type conversions
+        const contactEmail = String(contactInfo.email || '');
+        console.log('Processed email value:', contactEmail);
+        
+        // Create contact with explicit field assignment - no object spread which could lose properties
+        const newContact = {
+            name: String(contactInfo.name || ''),
+            surname: String(contactInfo.surname || ''),
+            phone: String(contactInfo.phone || ''),
+            email: contactEmail, // Explicitly assign email
+            howWeMet: String(contactInfo.howWeMet || ''),
+            createdAt: admin.firestore.Timestamp.now()
+        };
+        
+        console.log('Final contact object to save:', newContact);
+        
+        // Add to existing contacts
+        existingContacts.push(newContact);
+
+        // Log the final array before saving
+        console.log('Contact list to save (first few):', 
+            existingContacts.slice(-3).map(c => ({ ...c, createdAt: 'timestamp' }))
+        );
+
+        // Use contactList consistently
+        await contactsRef.set({
+            userId: db.doc(`users/${userId}`),
+            contactList: existingContacts
+        }, { merge: true });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact addition');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
+        // Send email notification if user has email
+        if (userData.email) {
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: userData.email,
+                subject: 'Someone Saved Your Contact Information',
+                html: `
+                    <h2>New Contact Added</h2>
+                    <p><strong>${contactInfo.name} ${contactInfo.surname}</strong> recently received your XS Card and has sent you their details:</p>
+                    <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                        <p><strong>Contact Details:</strong></p>
+                        <ul style="list-style: none; padding-left: 0;">
+                            <li><strong>Name:</strong> ${contactInfo.name}</li>
+                            <li><strong>Surname:</strong> ${contactInfo.surname}</li>
+                            <li><strong>Phone Number:</strong> ${contactInfo.phone}</li>
+                            <li><strong>Email:</strong> ${contactInfo.email || 'Not provided'}</li>
+                            <li><strong>How You Met:</strong> ${contactInfo.howWeMet}</li>
+                        </ul>
+                    </div>
+                    <p style="color: #666; font-size: 12px;">This is an automated notification from your XS Card application.</p>
+                    ${userData.plan === 'free' ? 
+                        `<p style="color: #ff4b6e;">You have ${FREE_PLAN_CONTACT_LIMIT - existingContacts.length} contacts remaining in your free plan.</p>` 
+                        : ''}
+                `
+            };
+
+            const mailResult = await sendMailWithStatus(mailOptions);
+            if (!mailResult.success) {
+                console.error('Failed to send email notification:', mailResult.error);
+            }
+        }
+
+        // Log successful contact save - use await directly
+        console.log('About to log contact creation activity');
+        await logActivity({
+            action: ACTIONS.CREATE,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            resourceId: contactsRef.id,
+            details: {
+                contactName: `${contactInfo.name} ${contactInfo.surname}`,
+                contactCount: existingContacts.length,
+                plan: userData.plan
+            }
+        });
+
+        // Make sure we're sending a success flag in the response for the frontend
+        res.status(200).send({ 
+            success: true,
+            message: 'Contact saved successfully',
+            // Return the saved contact for verification
+            savedContact: {
+                ...newContact,
+                createdAt: 'timestamp'
+            },
+            contactsCount: existingContacts.length,
+            remainingContacts: userData.plan === 'free' ? 
+                FREE_PLAN_CONTACT_LIMIT - existingContacts.length : 
+                'unlimited'
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: userId,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'save_contact'
+            }
+        });
+        
+        console.error('Error saving contact info:', error);
+        res.status(500).send({ 
+            success: false,
+            message: 'Failed to save contact information',
+            error: error.message 
+        });
+    }
+};
+
+exports.updateContact = async (req, res) => {
+    const { id } = req.params;
+    const { contactInfo } = req.body;
+    
+    if (!contactInfo) {
+        return res.status(400).send({ message: 'Contact info is required' });
+    }
+
+    try {
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+
+        if (!doc.exists) {
+            return res.status(404).send({ message: 'Contact list not found' });
+        }
+
+        const currentContacts = doc.data().contactsList || [];
+        currentContacts.push({
+            ...contactInfo,
+            createdAt: new Date().toISOString()
+        });
+
+        await contactRef.update({
+            contactsList: currentContacts
+        });
+
+        res.status(200).send({ 
+            message: 'Contact list updated successfully',
+            updatedContacts: currentContacts
+        });
+    } catch (error) {
+        console.error('Error updating contacts:', error);
+        res.status(500).send({ 
+            message: 'Internal Server Error', 
+            error: error.message 
+        });
+    }
+};
+
+exports.deleteContact = async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🗑️ [ContactController] deleteContact - User ${requestingUserId} requesting to delete contacts for ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'delete', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Delete access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Delete access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        await contactRef.delete();
+        
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact list deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+        
+        // Log successful contact list deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_list',
+                contactCount: doc.data().contactList.length
+            }
+        });
+        
+        res.status(200).send({ 
+            message: 'Contact list deleted successfully',
+            deletedContactId: id
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_list'
+            }
+        });
+        
+        console.error('Delete contact error:', error);
+        res.status(500).send({ 
+            message: 'Failed to delete contact list',
+            error: error.message 
+        });
+    }
+};
+
+exports.deleteContactFromList = async (req, res) => {
+    const { id, index } = req.params;
+    const contactIndex = parseInt(index);
+    
+    console.log('Delete request received:', { id, index, contactIndex }); // Debug log
+
+    try {
+        // Check if user is authenticated (from middleware)
+        if (!req.user || !req.user.uid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const requestingUserId = req.user.uid;
+        const targetUserId = id; // The contact document ID is the user ID
+
+        console.log(`🗑️ [ContactController] deleteContactFromList - User ${requestingUserId} requesting to delete contact ${contactIndex} from ${targetUserId}`);
+
+        // Check contact permissions
+        const permissionCheck = await checkContactPermissions(requestingUserId, 'delete', targetUserId);
+        
+        if (!permissionCheck.allowed) {
+            console.log(`❌ [ContactController] Delete contact access denied: ${permissionCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied',
+                reason: permissionCheck.reason
+            });
+        }
+
+        console.log(`✅ [ContactController] Delete contact access granted - Level: ${permissionCheck.accessLevel}, Role: ${permissionCheck.userRole}`);
+
+        const contactRef = db.collection('contacts').doc(id);
+        const doc = await contactRef.get();
+        
+        if (!doc.exists) {
+            console.log('Document not found:', id);
+            return res.status(404).send({ 
+                success: false,
+                message: 'Contact list not found' 
+            });
+        }
+
+        const data = doc.data();
+        // Check if contactList exists (not contactsList)
+        const currentContacts = data.contactList || [];
+        
+        console.log('Current contacts:', { 
+            total: currentContacts.length, 
+            requestedIndex: contactIndex,
+            contacts: currentContacts
+        });
+
+        if (contactIndex < 0 || contactIndex >= currentContacts.length) {
+            console.log('Index out of range:', { contactIndex, length: currentContacts.length });
+            return res.status(400).send({ message: 'Contact index out of range' });
+        }
+
+        const deletedContact = currentContacts[contactIndex];
+        currentContacts.splice(contactIndex, 1);
+
+        await contactRef.update({
+            contactList: currentContacts // Note: using contactList, not contactsList
+        });
+
+        // Invalidate contact aggregation cache for all enterprises
+        try {
+            contactCache.invalidateByPattern('enterprise:');
+            console.log('✅ Contact aggregation cache invalidated after contact deletion');
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate contact cache:', cacheError.message);
+        }
+
+        // Log successful individual contact deletion with await
+        await logActivity({
+            action: ACTIONS.DELETE,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            details: {
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex,
+                contactName: deletedContact.name ? `${deletedContact.name} ${deletedContact.surname || ''}` : 'unnamed',
+                remainingContacts: currentContacts.length
+            }
+        });
+
+        console.log('Contact deleted successfully');
+        res.status(200).send({ 
+            message: 'Contact deleted successfully',
+            remainingContacts: currentContacts.length
+        });
+    } catch (error) {
+        // Log error with await
+        await logActivity({
+            action: ACTIONS.ERROR,
+            resource: RESOURCES.CONTACT,
+            userId: req.user?.uid,
+            resourceId: id,
+            status: 'error',
+            details: {
+                error: error.message,
+                operation: 'delete_contact_from_list',
+                contactIndex: contactIndex
+            }
+        });
+        
+        console.error('Delete contact error:', error);
+        res.status(500).send({ 
+            message: 'Failed to delete contact',
+            error: error.message 
+        });
+    }
+};

@@ -1,0 +1,549 @@
+{
+	"info": {
+		"_postman_id": "contact-permissions-test-collection",
+		"name": "Contact Permissions Test Collection",
+		"description": "Test collection for employee contact permissions implementation. Tests authentication, employee permissions, individual user permissions, and admin/manager access.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Authentication Tests",
+			"item": [
+				{
+					"name": "Get All Contacts - No Token",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts"
+							]
+						},
+						"description": "Should return 401 - Authentication required"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Contacts - Invalid Token",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer invalid-token-here",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts"
+							]
+						},
+						"description": "Should return 401 - Invalid token"
+					},
+					"response": []
+				}
+			],
+			"description": "Tests for authentication requirements"
+		},
+		{
+			"name": "Employee Permission Tests",
+			"item": [
+				{
+					"name": "Employee - View Own Contacts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{employee1Token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts"
+							]
+						},
+						"description": "Employee should be able to view their own contacts only"
+					},
+					"response": []
+				},
+				{
+					"name": "Employee - View Own Contact List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{employee1Token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts/{{employee1Id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"{{employee1Id}}"
+							]
+						},
+						"description": "Employee should be able to view their own contact list"
+					},
+					"response": []
+				},
+				{
+					"name": "Employee - View Other Employee Contacts (Should Fail)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{employee1Token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts/{{employee2Id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"{{employee2Id}}"
+							]
+						},
+						"description": "Employee should NOT be able to view other employee's contacts - should return 403"
+					},
+					"response": []
+				},
+				{
+					"name": "Employee - Delete Own Contact List",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{employee1Token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts/{{employee1Id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"{{employee1Id}}"
+							]
+						},
+						"description": "Employee should be able to delete their own contact list"
+					},
+					"response": []
+				},
+				{
+					"name": "Employee - Delete Other Employee Contacts (Should Fail)",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{employee1Token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts/{{employee2Id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"{{employee2Id}}"
+							]
+						},
+						"description": "Employee should NOT be able to delete other employee's contacts - should return 403"
+					},
+					"response": []
+				},
+				{
+					"name": "Employee - Delete Own Contact Item",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{employee1Token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts/{{employee1Id}}/0",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"{{employee1Id}}",
+								"0"
+							]
+						},
+						"description": "Employee should be able to delete a contact from their own list"
+					},
+					"response": []
+				},
+				{
+					"name": "Employee - Delete Other Employee Contact Item (Should Fail)",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{employee1Token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts/{{employee2Id}}/0",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"{{employee2Id}}",
+								"0"
+							]
+						},
+						"description": "Employee should NOT be able to delete contacts from other employee's list - should return 403"
+					},
+					"response": []
+				}
+			],
+			"description": "Tests for employee role permissions"
+		},
+		{
+			"name": "Individual User Tests",
+			"item": [
+				{
+					"name": "Individual User - View Own Contacts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{individualUserToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts"
+							]
+						},
+						"description": "Individual user should be able to view their own contacts only"
+					},
+					"response": []
+				},
+				{
+					"name": "Individual User - View Own Contact List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{individualUserToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts/{{individualUserId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"{{individualUserId}}"
+							]
+						},
+						"description": "Individual user should be able to view their own contact list"
+					},
+					"response": []
+				},
+				{
+					"name": "Individual User - View Other User Contacts (Should Fail)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{individualUserToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts/{{employee1Id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"{{employee1Id}}"
+							]
+						},
+						"description": "Individual user should NOT be able to view other user's contacts - should return 403"
+					},
+					"response": []
+				}
+			],
+			"description": "Tests for individual user permissions (non-enterprise users)"
+		},
+		{
+			"name": "Admin/Manager Tests (Not Implemented)",
+			"item": [
+				{
+					"name": "Admin - View All Contacts (Should Fail)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{adminToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts"
+							]
+						},
+						"description": "Admin access should return 501 - Not implemented yet"
+					},
+					"response": []
+				},
+				{
+					"name": "Manager - View All Contacts (Should Fail)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{managerToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts"
+							]
+						},
+						"description": "Manager access should return 501 - Not implemented yet"
+					},
+					"response": []
+				}
+			],
+			"description": "Tests for admin/manager roles (currently not implemented)"
+		},
+		{
+			"name": "Cross-User Tests",
+			"item": [
+				{
+					"name": "Employee2 - View Own Contacts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{employee2Token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts"
+							]
+						},
+						"description": "Second employee should be able to view their own contacts"
+					},
+					"response": []
+				},
+				{
+					"name": "Employee2 - View Employee1 Contacts (Should Fail)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{employee2Token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contacts/{{employee1Id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contacts",
+								"{{employee1Id}}"
+							]
+						},
+						"description": "Employee2 should NOT be able to view Employee1's contacts - should return 403"
+					},
+					"response": []
+				}
+			],
+			"description": "Cross-user permission tests"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Pre-request script to set up test data",
+					"console.log('Running Contact Permissions Test Collection');"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Test script to validate responses",
+					"pm.test('Response time is less than 2000ms', function () {",
+					"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+					"});",
+					"",
+					"pm.test('Response has valid JSON', function () {",
+					"    pm.response.to.have.jsonBody();",
+					"});",
+					"",
+					"// Check for expected status codes based on test name",
+					"const testName = pm.info.requestName;",
+					"",
+					"if (testName.includes('Should Fail') || testName.includes('Not Implemented')) {",
+					"    pm.test('Should return error status', function () {",
+					"        pm.expect(pm.response.code).to.be.oneOf([401, 403, 501]);",
+					"    });",
+					"} else {",
+					"    pm.test('Should return success status', function () {",
+					"        pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+					"    });",
+					"}",
+					"",
+					"// Log response for debugging",
+					"console.log('Test:', testName);",
+					"console.log('Status:', pm.response.code);",
+					"console.log('Response:', pm.response.json());"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8383",
+			"type": "string",
+			"description": "Base URL for the API server"
+		},
+		{
+			"key": "employee1Token",
+			"value": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjU3YmZiMmExMWRkZmZjMGFkMmU2ODE0YzY4NzYzYjhjNjg3NTgxZDgiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NTA2MjgxLCJ1c2VyX2lkIjoieXk5cHJuVThzTVdzam9RVmFIaVpTUXJ3S0ZKMiIsInN1YiI6Inl5OXByblU4c01Xc2pvUVZhSGlaU1Fyd0tGSjIiLCJpYXQiOjE3NTU1MDYyODEsImV4cCI6MTc1NTUwOTg4MSwiZW1haWwiOiJoaWdlbmF3OTcyQGZ1cnNlZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZmlyZWJhc2UiOnsiaWRlbnRpdGllcyI6eyJlbWFpbCI6WyJoaWdlbmF3OTcyQGZ1cnNlZS5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.T7bTDeLgNc_Uij4MF48tCRk6Ug7ekapjGLR_KeStv3T0wJnMfho1mxkZzopkRISVOqt75PK2zF4_wV1KxbRMAPGZg0Q8bIDEmGV7QzG_OloQu06iuJtV0jV5-hCQNFcvAXqLWt9n0C_isnGSK7rgCqr3uYA_ulfn4UBTlEtgz_DMnrfZhtE-irdt8YzeCJBN4x7n-F5D_D477WmbE4O8_4HPgaAtBHKpoY8-YerqPxjY-p4QMhgNZhZCmGKT0xLKmIsVBcabKONqsR16ozewF7h9jK0wgGjh119MNUhHDoWpUpL_XvYkjL0zyqaEEUGEvdtruckUtVeAjM7nFrlCRA",
+			"type": "string",
+			"description": "Authentication token for first employee"
+		},
+		{
+			"key": "employee2Token",
+			"value": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjU3YmZiMmExMWRkZmZjMGFkMmU2ODE0YzY4NzYzYjhjNjg3NTgxZDgiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NTA2MjgyLCJ1c2VyX2lkIjoiakhLWE9vQjlhaVRNZE9pVG11UmNrWWRRRklMMiIsInN1YiI6ImpIS1hPb0I5YWlUTWRPaVRtdVJja1lkUUZJTDIiLCJpYXQiOjE3NTU1MDYyODIsImV4cCI6MTc1NTUwOTg4MiwiZW1haWwiOiJ4aWNlcG80MTk1QGZ1dGVici5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZmlyZWJhc2UiOnsiaWRlbnRpdGllcyI6eyJlbWFpbCI6WyJ4aWNlcG80MTk1QGZ1dGVici5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.QhZNpPcfpt1eFu3oETRl8M3bhsgoqAqPMZrKKG6tpwWBLfTq9KKMEhPJYR_nGs5QhHAIJOOR5j6WnDaSmUATpMN5MmdETVEo7UXfLuZThFpP50_wYEhtIa38454b8XgnCDOhbPO21V1XcEtDcBwcHWHusheauEPDdknq2TsO1DTBq_wrkdKKl2kPnB4L1Z6QZbk9IGeQSQx-yOWGEYXBOUPcNR3__ryQLtV_vrHv0QRCMklsggWIJEUlOCeQ0YfaObX7256Cy2AJVplMgu8d5d0pTfykodeQc5KFccr4rP0PqmwXNQwGOKtl_b8XgLRrxsAr57US8ww4TSFeBO7CGQ",
+			"type": "string",
+			"description": "Authentication token for second employee"
+		},
+		{
+			"key": "individualUserToken",
+			"value": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjU3YmZiMmExMWRkZmZjMGFkMmU2ODE0YzY4NzYzYjhjNjg3NTgxZDgiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NTA2Mjc3LCJ1c2VyX2lkIjoiRWNjeU1Ddjd1aVMxZVlIQjNaTXU2elJSMURHMiIsInN1YiI6IkVjY3lNQ3Y3dWlTMWVZSEIzWk11NnpSUjFERzIiLCJpYXQiOjE3NTU1MDYyNzcsImV4cCI6MTc1NTUwOTg3NywiZW1haWwiOiJ0ZXN0ZWhha2tlQGd1ZnVtLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJmaXJlYmFzZSI6eyJpZGVudGl0aWVzIjp7ImVtYWlsIjpbInRlc3RlaGFra2VAZ3VmdW0uY29tIl19LCJzaWduX2luX3Byb3ZpZGVyIjoicGFzc3dvcmQifX0.h8yvt-VIasWD67Cr1cz9R1q-rVXUOn89FlGi_XWjAMerp8Pyc4kdR95ONebbbGiACk6jwi9LX3ZbBPYBv-F1qX-tszUkeh-AwPNzQJrpMTNmSl40CtIWwRhiPDJFo-KeHuLO3HphdFOoqt406T5AL1ofUDGRw_ObEeKwXeeWKSOeTwnF1Sv6A2Gk3zE3G5hADUuSaEh1Q-quNVx7QhtEB6S7rwmCUdvM1KormD7vD6igvKBy0RwkRIi-gGmypARUz1rqCYWBhpEBV4Bhpe0LgXRfjq11IOCHt591XzLt4DpW_QpK185D8dQYxyT9lxMRqryqzDPoHQDXHWXcym9Viw",
+			"type": "string",
+			"description": "Authentication token for individual user"
+		},
+		{
+			"key": "managerToken",
+			"value": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjU3YmZiMmExMWRkZmZjMGFkMmU2ODE0YzY4NzYzYjhjNjg3NTgxZDgiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NTA2Mjc4LCJ1c2VyX2lkIjoiRFcxUWJnTFRpQ2dGeE9CYnZQS2RqbEx2SWdvMSIsInN1YiI6IkRXMVFiZ0xUaUNnRnhPQmJ2UEtkamxMdklnbzEiLCJpYXQiOjE3NTU1MDYyNzgsImV4cCI6MTc1NTUwOTg3OCwiZW1haWwiOiJ0c2hlaGxhcEBnbWFpbC5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZmlyZWJhc2UiOnsiaWRlbnRpdGllcyI6eyJlbWFpbCI6WyJ0c2hlaGxhcEBnbWFpbC5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.CQd9BmKsnsOOuww2Tldg_2JqUhhUSZ3TEyTeUXCONdJED2dbxiYMuTvZAUKBo1mlBAxcIZK5Up9A5RH3cKd_V4vnASGKEW6bNl3F-P67jOqrr328AlTy7gHyhwSNz5KSPVFO_wo0L4p0p2I-8LmNE1iXDzPD2dLldqbtT4VizcGFFupcxJjsXMg0G0jOLv1N-d1uDRkAWn9rGM4ZI764F_twKy9MXth9FVHuNuorNQVtiz_rGvOhyo7WYenahjh7I_WSGOoec_us-MtmWoibM4e0KBsowfUYQHuKD2TpPXJia1CkZHHBzh-Oy0AJjCAFz05-Anu2y5OEudyjt_mm6Q",
+			"type": "string",
+			"description": "Authentication token for manager user"
+		},
+		{
+			"key": "adminToken",
+			"value": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjU3YmZiMmExMWRkZmZjMGFkMmU2ODE0YzY4NzYzYjhjNjg3NTgxZDgiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NTA2Mjc5LCJ1c2VyX2lkIjoiQlB4Rm1tRzZTVlh2Ynd3UkowWWpCbnVJOGU3MyIsInN1YiI6IkJQeEZtbUc2U1ZYdmJ3d1JKMFlqQm51SThlNzMiLCJpYXQiOjE3NTU1MDYyNzksImV4cCI6MTc1NTUwOTg3OSwiZW1haWwiOiJ4ZW5hY29oNzQwQHBlcmN5ZnguY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZW1haWwiOlsieGVuYWNvaDc0MEBwZXJjeWZ4LmNvbSJdfSwic2lnbl9pbl9wcm92aWRlciI6InBhc3N3b3JkIn19.NLBUrxrlDfVJnUDpc24Gw_JVlAn0JmqvaH8W-oJ4phPUy5a3PEO-pOqjf6YCrrHiETLju1ZHuwaiDTI3QTf9Bh806SXS6yAM17uqkq-MucN4rQDiM9gBl4AxuELA2djWSGTr1Bn-tZMAH-XrHDXM1uonU1_UvX9xtxjrXyYIJBXl1Bvkfm77-VDuMLlkmszADHf6XhMTuAZHy_rDr68-rTbw31pA-zpZ_T-LqL7XjXEgBghk-o645qCVSviZdqKR4DDq2f_Q9SYN74o3LO5iHsNt4qGDNTCyfExAEXWD9z_eLGgVCqmb0RI5vBfOwvs2Z_vEW3BXqs_rJyWGSREhFw",
+			"type": "string",
+			"description": "Authentication token for admin user"
+		},
+		{
+			"key": "employee1Id",
+			"value": "yy9prnU8sMWsjoQVaHiZSQrwKFJ2",
+			"type": "string",
+			"description": "First employee user ID"
+		},
+		{
+			"key": "employee2Id",
+			"value": "jHKXOoB9aiTMdOiTmuRckYdQFIL2",
+			"type": "string",
+			"description": "Second employee user ID"
+		},
+		{
+			"key": "individualUserId",
+			"value": "EccyMCv7uiS1eYHB3ZMu6zRR1DG2",
+			"type": "string",
+			"description": "Individual user ID (non-enterprise)"
+		}
+	]
+}
+
+
