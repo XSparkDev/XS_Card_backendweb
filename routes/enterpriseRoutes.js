@@ -88,4 +88,7 @@ router.post('/enterprise/:enterpriseId/security/actions/create-incident', authen
 // Individual Permissions endpoints (Business Cards POC)
 router.put('/enterprise/:enterpriseId/users/:userId/permissions', authenticateUser, enterpriseController.updateUserIndividualPermissions);
 
+// Calendar Permissions endpoints
+router.put('/enterprise/:enterpriseId/users/:userId/calendar-permissions', authenticateUser, enterpriseController.updateUserCalendarPermissions);
+
 module.exports = router;

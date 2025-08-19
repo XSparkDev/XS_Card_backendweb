@@ -1,0 +1,624 @@
+{
+	"info": {
+		"_postman_id": "calendar-permissions-test-collection",
+		"name": "Calendar Permissions Test Collection",
+		"description": "Test collection for calendar permissions implementation. Tests authentication, permission validation, and various calendar permission scenarios.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Authentication Tests",
+			"item": [
+				{
+					"name": "Calendar Permissions - No Token",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": [\"viewCalendar\"],\n    \"removed\": []\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/enterprise/{{enterpriseId}}/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 401 - Authentication required"
+					},
+					"response": []
+				},
+				{
+					"name": "Calendar Permissions - Invalid Token",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer invalid-token-here",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": [\"viewCalendar\"],\n    \"removed\": []\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 401 - Invalid token"
+					},
+					"response": []
+				}
+			],
+			"description": "Tests for authentication requirements"
+		},
+		{
+			"name": "Valid Permission Tests",
+			"item": [
+				{
+					"name": "Add viewCalendar Permission",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{validToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": [\"viewCalendar\"],\n    \"removed\": []\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 200 - Successfully add viewCalendar permission"
+					},
+					"response": []
+				},
+				{
+					"name": "Add createMeetings Permission",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{validToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": [\"createMeetings\"],\n    \"removed\": []\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 200 - Successfully add createMeetings permission"
+					},
+					"response": []
+				},
+				{
+					"name": "Add manageAllMeetings Permission",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{validToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": [\"manageAllMeetings\"],\n    \"removed\": []\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 200 - Successfully add manageAllMeetings permission"
+					},
+					"response": []
+				},
+				{
+					"name": "Remove viewCalendar Permission",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{validToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": [],\n    \"removed\": [\"viewCalendar\"]\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 200 - Successfully remove viewCalendar permission"
+					},
+					"response": []
+				},
+				{
+					"name": "Mixed Add and Remove Permissions",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{validToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": [\"viewCalendar\", \"manageAllMeetings\"],\n    \"removed\": [\"createMeetings\"]\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 200 - Successfully add and remove permissions in one request"
+					},
+					"response": []
+				},
+				{
+					"name": "Empty Permissions Arrays",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{validToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": [],\n    \"removed\": []\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 200 - Empty arrays are valid (no changes)"
+					},
+					"response": []
+				}
+			],
+			"description": "Tests for valid calendar permission operations"
+		},
+		{
+			"name": "Invalid Permission Tests",
+			"item": [
+				{
+					"name": "Invalid Permission Name",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{validToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": [\"invalidPermission\"],\n    \"removed\": []\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 400 - Invalid permission name"
+					},
+					"response": []
+				},
+				{
+					"name": "Multiple Invalid Permissions",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{validToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": [\"invalidPerm1\", \"invalidPerm2\"],\n    \"removed\": [\"invalidPerm3\"]\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 400 - Multiple invalid permissions"
+					},
+					"response": []
+				},
+				{
+					"name": "Missing individualPermissions",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{validToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 400 - Missing individualPermissions object"
+					},
+					"response": []
+				},
+				{
+					"name": "Invalid Array Structure",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{validToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": \"not-an-array\",\n    \"removed\": []\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 400 - Invalid array structure"
+					},
+					"response": []
+				}
+			],
+			"description": "Tests for invalid permission operations"
+		},
+		{
+			"name": "Enterprise and User Tests",
+			"item": [
+				{
+					"name": "Non-existent Enterprise",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{validToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": [\"viewCalendar\"],\n    \"removed\": []\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/non-existent-enterprise/users/{{userId}}/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"non-existent-enterprise",
+								"users",
+								"{{userId}}",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 404 - Enterprise not found"
+					},
+					"response": []
+				},
+				{
+					"name": "Non-existent User",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{validToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"individualPermissions\": {\n    \"added\": [\"viewCalendar\"],\n    \"removed\": []\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/enterprise/{{enterpriseId}}/users/non-existent-user/calendar-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"enterprise",
+								"{{enterpriseId}}",
+								"users",
+								"non-existent-user",
+								"calendar-permissions"
+							]
+						},
+						"description": "Should return 404 - User not found in enterprise"
+					},
+					"response": []
+				}
+			],
+			"description": "Tests for enterprise and user validation"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Pre-request script to set up test data",
+					"console.log('Running Calendar Permissions Test Collection');"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Test script to validate responses",
+					"pm.test('Response time is less than 2000ms', function () {",
+					"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+					"});",
+					"",
+					"pm.test('Response has valid JSON', function () {",
+					"    pm.response.to.have.jsonBody();",
+					"});",
+					"",
+					"// Check for expected status codes based on test name",
+					"const testName = pm.info.requestName;",
+					"",
+					"if (testName.includes('No Token') || testName.includes('Invalid Token')) {",
+					"    pm.test('Should return 401 for authentication issues', function () {",
+					"        pm.expect(pm.response.code).to.equal(401);",
+					"    });",
+					"} else if (testName.includes('Invalid Permission') || testName.includes('Missing') || testName.includes('Invalid Array')) {",
+					"    pm.test('Should return 400 for bad requests', function () {",
+					"        pm.expect(pm.response.code).to.equal(400);",
+					"    });",
+					"} else if (testName.includes('Non-existent')) {",
+					"    pm.test('Should return 404 for not found', function () {",
+					"        pm.expect(pm.response.code).to.equal(404);",
+					"    });",
+					"} else {",
+					"    pm.test('Should return 200 for valid requests', function () {",
+					"        pm.expect(pm.response.code).to.equal(200);",
+					"    });",
+					"    ",
+					"    pm.test('Should have success field set to true', function () {",
+					"        const responseJson = pm.response.json();",
+					"        pm.expect(responseJson.success).to.be.true;",
+					"    });",
+					"    ",
+					"    pm.test('Should have calendar permissions message', function () {",
+					"        const responseJson = pm.response.json();",
+					"        pm.expect(responseJson.message).to.include('Calendar permissions');",
+					"    });",
+					"}",
+					"",
+					"// Log response for debugging",
+					"console.log('Test:', testName);",
+					"console.log('Status:', pm.response.code);",
+					"console.log('Response:', pm.response.json());"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8383",
+			"type": "string",
+			"description": "Base URL for the API server"
+		},
+		{
+			"key": "enterpriseId",
+			"value": "test-enterprise",
+			"type": "string",
+			"description": "Enterprise ID for testing"
+		},
+		{
+			"key": "userId",
+			"value": "user-001",
+			"type": "string",
+			"description": "User ID for testing"
+		},
+		{
+			"key": "validToken",
+			"value": "REPLACE_WITH_VALID_FIREBASE_TOKEN",
+			"type": "string",
+			"description": "Valid Firebase authentication token"
+		}
+	]
+}
