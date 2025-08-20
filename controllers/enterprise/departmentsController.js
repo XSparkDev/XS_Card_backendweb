@@ -1,6 +1,7 @@
 const { db, admin } = require('../../firebase.js');
 const { sendMailWithStatus } = require('../../public/Utils/emailService');
 const { invalidateEnterpriseCache } = require('./contactAggregationController'); // PHASE 5: Cache invalidation
+const { logActivity, ACTIONS, RESOURCES } = require('../../utils/logger');
 
 // Helper function for standardized error responses
 const sendError = (res, status, message, error = null) => {
@@ -2402,16 +2403,20 @@ exports.getAllEnterpriseEmployees = async (req, res) => {
                     if (userDoc.exists) {
                         const userData = userDoc.data();
                         employee.individualPermissions = userData.individualPermissions || { removed: [], added: [] };
+                        employee.calendarPermissions = userData.calendarPermissions || { removed: [], added: [] };
                         employee.role = userData.role || employee.role || 'Employee'; // Add role if not present
                     } else {
                         employee.individualPermissions = { removed: [], added: [] };
+                        employee.calendarPermissions = { removed: [], added: [] };
                     }
                 } else {
                     employee.individualPermissions = { removed: [], added: [] };
+                    employee.calendarPermissions = { removed: [], added: [] };
                 }
             } catch (error) {
                 console.error(`Error fetching permissions for employee ${employee.id}:`, error);
                 employee.individualPermissions = { removed: [], added: [] };
+                employee.calendarPermissions = { removed: [], added: [] };
             }
             return employee;
         });
@@ -2502,5 +2507,179 @@ exports.getDepartmentManagers = async (req, res) => {
         });
     } catch (error) {
         sendError(res, 500, 'Error fetching department managers', error);
+    }
+};
+
+/**
+ * Update employee role
+ */
+exports.updateEmployeeRole = async (req, res) => {
+    try {
+        const { enterpriseId, departmentId, employeeId } = req.params;
+        const { role } = req.body;
+        const currentUserId = req.user.uid;
+
+        // Validate required parameters
+        if (!enterpriseId || !departmentId || !employeeId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Enterprise ID, Department ID, and Employee ID are required'
+            });
+        }
+
+        if (!role) {
+            return res.status(400).json({
+                success: false,
+                message: 'Role is required'
+            });
+        }
+
+        // Validate role is one of the allowed values
+        const allowedRoles = ['employee', 'manager', 'director', 'admin'];
+        if (!allowedRoles.includes(role)) {
+            return res.status(400).json({
+                success: false,
+                message: `Role must be one of: ${allowedRoles.join(', ')}`
+            });
+        }
+
+        // Check if enterprise exists
+        const enterpriseRef = db.collection('enterprise').doc(enterpriseId);
+        const enterpriseDoc = await enterpriseRef.get();
+        
+        if (!enterpriseDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'Enterprise not found'
+            });
+        }
+
+        // Check if department exists
+        const departmentRef = enterpriseRef.collection('departments').doc(departmentId);
+        const departmentDoc = await departmentRef.get();
+        
+        if (!departmentDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'Department not found'
+            });
+        }
+
+        // Check if employee exists in the department
+        const employeeRef = departmentRef.collection('employees').doc(employeeId);
+        const employeeDoc = await employeeRef.get();
+        
+        if (!employeeDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'Employee not found in this department'
+            });
+        }
+
+        const employeeData = employeeDoc.data();
+        const oldRole = employeeData.role;
+
+        // Check if user is trying to change their own role
+        const isSelfOperation = employeeId === currentUserId;
+
+        // If not self-operation, check if current user has admin privileges
+        if (!isSelfOperation) {
+            // Get current user's role in the enterprise
+            let currentUserRole = null;
+            const departmentsSnapshot = await enterpriseRef.collection('departments').get();
+            
+            for (const deptDoc of departmentsSnapshot.docs) {
+                const employeesSnapshot = await deptDoc.ref.collection('employees')
+                    .where('userId', '==', db.doc(`users/${currentUserId}`))
+                    .get();
+                
+                if (!employeesSnapshot.empty) {
+                    const currentEmployeeData = employeesSnapshot.docs[0].data();
+                    currentUserRole = currentEmployeeData.role;
+                    break;
+                }
+            }
+
+            // Only admins can change other users' roles
+            if (currentUserRole !== 'admin') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only administrators can change employee roles'
+                });
+            }
+        }
+
+        // Update employee role in department
+        await employeeRef.update({
+            role: role,
+            updatedAt: admin.firestore.Timestamp.now()
+        });
+
+        // Update employee role in enterprise users collection
+        const enterpriseUserRef = enterpriseRef.collection('users').doc(employeeId);
+        const enterpriseUserDoc = await enterpriseUserRef.get();
+        
+        if (enterpriseUserDoc.exists) {
+            await enterpriseUserRef.update({
+                role: role,
+                lastModified: new Date(),
+                lastModifiedBy: currentUserId
+            });
+        } else {
+            // Create enterprise user record if it doesn't exist
+            await enterpriseUserRef.set({
+                id: employeeId,
+                firstName: employeeData.name || '',
+                lastName: employeeData.surname || '',
+                email: employeeData.email || '',
+                role: role,
+                status: 'active',
+                individualPermissions: { removed: [], added: [] },
+                calendarPermissions: { removed: [], added: [] },
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                lastModified: new Date(),
+                lastModifiedBy: currentUserId
+            });
+        }
+
+        // Log the role change
+        await logActivity({
+            action: ACTIONS.UPDATE,
+            resource: 'EMPLOYEE_ROLE',
+            userId: currentUserId,
+            resourceId: employeeId,
+            details: {
+                enterpriseId: enterpriseId,
+                departmentId: departmentId,
+                targetUserId: employeeId,
+                oldRole: oldRole,
+                newRole: role,
+                operationType: isSelfOperation ? 'self_role_change' : 'admin_role_change',
+                employeeName: `${employeeData.name || ''} ${employeeData.surname || ''}`.trim(),
+                employeeEmail: employeeData.email
+            }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Employee role updated successfully',
+            data: {
+                employeeId: employeeId,
+                oldRole: oldRole,
+                newRole: role,
+                updatedAt: new Date().toISOString(),
+                updatedBy: currentUserId,
+                operationType: isSelfOperation ? 'self_role_change' : 'admin_role_change'
+            }
+        });
+
+    } catch (error) {
+        console.error('Error updating employee role:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update employee role',
+            error: error.message
+        });
     }
 };

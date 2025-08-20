@@ -41,6 +41,7 @@ router.get('/enterprise/:enterpriseId/departments/:departmentId/employees', depa
 router.post('/enterprise/:enterpriseId/departments/:departmentId/employees', departmentsController.addEmployee);
 router.get('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId', departmentsController.getEmployeeById);
 router.put('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId', departmentsController.updateEmployee);
+router.patch('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId/role', departmentsController.updateEmployeeRole);
 router.delete('/enterprise/:enterpriseId/departments/:departmentId/employees/:employeeId', departmentsController.deleteEmployee);
 
 // New unassignment routes

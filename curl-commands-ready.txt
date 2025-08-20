@@ -1,0 +1,80 @@
+# Role Management Testing - Ready to Use Curl Commands
+# Copy and paste these commands into your terminal
+
+# ========================================
+# EMPLOYEE USER TESTS (higenaw972@fursee.com)
+# ========================================
+
+# 1. Test updating own role to manager
+curl -X PATCH "http://localhost:8383/enterprise/x-spark-test/departments/marketing/employees/yy9prnU8sMWsjoQVaHiZSQrwKFJ2/role" -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjU3YmZiMmExMWRkZmZjMGFkMmU2ODE0YzY4NzYzYjhjNjg3NTgxZDgiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NjM1NDc2LCJ1c2VyX2lkIjoieXk5cHJuVThzTVdzam9RVmFIaVpTUXJ3S0ZKMiIsInN1YiI6Inl5OXByblU4c01Xc2pvUVZhSGlaU1Fyd0tGSjIiLCJpYXQiOjE3NTU2MzU0NzYsImV4cCI6MTc1NTYzOTA3NiwiZW1haWwiOiJoaWdlbmF3OTcyQGZ1cnNlZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZmlyZWJhc2UiOnsiaWRlbnRpdGllcyI6eyJlbWFpbCI6WyJoaWdlbmF3OTcyQGZ1cnNlZS5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.JVQK_VDWI2jwZuC-5Lvw95kVBJB0O60LoP8Gsx4SK5LYpyTByI1wfSoZwxll7s_OmxnVn4v62WWxRFGn3Kf6ieqD7O9NcEsbxpmvDsOKPuusu_GY6R0M5W81Xkglpypdz6HxAeLf53NN8BbM02qzblZFXLJhf-Y5dJV6GnusRqm8HFwO2Zig4KAybd8nK6QPwr6uVJhNiQGG9V9Nit12yhyN35zoEwy1GjXypyF0IxOw9vsQ9AkWU7tj3BSNWOw62bnjCjJGSyocTWC6xrrLew8hoYzoUq3ImEuz2jsQ-mY5C5YEAQ4LVGKa7okb0hgUuphNnLJuhUPOFCHKJsgcNw" -H "Content-Type: application/json" -d '{"role": "manager"}'
+
+# 2. Test updating own role to admin
+curl -X PATCH "http://localhost:8383/enterprise/x-spark-test/departments/marketing/employees/yy9prnU8sMWsjoQVaHiZSQrwKFJ2/role" -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjU3YmZiMmExMWRkZmZjMGFkMmU2ODE0YzY4NzYzYjhjNjg3NTgxZDgiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NjM1NDc2LCJ1c2VyX2lkIjoieXk5cHJuVThzTVdzam9RVmFIaVpTUXJ3S0ZKMiIsInN1YiI6Inl5OXByblU4c01Xc2pvUVZhSGlaU1Fyd0tGSjIiLCJpYXQiOjE3NTU2MzU0NzYsImV4cCI6MTc1NTYzOTA3NiwiZW1haWwiOiJoaWdlbmF3OTcyQGZ1cnNlZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZmlyZWJhc2UiOnsiaWRlbnRpdGllcyI6eyJlbWFpbCI6WyJoaWdlbmF3OTcyQGZ1cnNlZS5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.JVQK_VDWI2jwZuC-5Lvw95kVBJB0O60LoP8Gsx4SK5LYpyTByI1wfSoZwxll7s_OmxnVn4v62WWxRFGn3Kf6ieqD7O9NcEsbxpmvDsOKPuusu_GY6R0M5W81Xkglpypdz6HxAeLf53NN8BbM02qzblZFXLJhf-Y5dJV6GnusRqm8HFwO2Zig4KAybd8nK6QPwr6uVJhNiQGG9V9Nit12yhyN35zoEwy1GjXypyF0IxOw9vsQ9AkWU7tj3BSNWOw62bnjCjJGSyocTWC6xrrLew8hoYzoUq3ImEuz2jsQ-mY5C5YEAQ4LVGKa7okb0hgUuphNnLJuhUPOFCHKJsgcNw" -H "Content-Type: application/json" -d '{"role": "admin"}'
+
+# 3. Test invalid role validation
+curl -X PATCH "http://localhost:8383/enterprise/x-spark-test/departments/marketing/employees/yy9prnU8sMWsjoQVaHiZSQrwKFJ2/role" -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjU3YmZiMmExMWRkZmZjMGFkMmU2ODE0YzY4NzYzYjhjNjg3NTgxZDgiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NjM1NDc2LCJ1c2VyX2lkIjoieXk5cHJuVThzTVdzam9RVmFIaVpTUXJ3S0ZKMiIsInN1YiI6Inl5OXByblU4c01Xc2pvUVZhSGlaU1Fyd0tGSjIiLCJpYXQiOjE3NTU2MzU0NzYsImV4cCI6MTc1NTYzOTA3NiwiZW1haWwiOiJoaWdlbmF3OTcyQGZ1cnNlZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZmlyZWJhc2UiOnsiaWRlbnRpdGllcyI6eyJlbWFpbCI6WyJoaWdlbmF3OTcyQGZ1cnNlZS5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.JVQK_VDWI2jwZuC-5Lvw95kVBJB0O60LoP8Gsx4SK5LYpyTByI1wfSoZwxll7s_OmxnVn4v62WWxRFGn3Kf6ieqD7O9NcEsbxpmvDsOKPuusu_GY6R0M5W81Xkglpypdz6HxAeLf53NN8BbM02qzblZFXLJhf-Y5dJV6GnusRqm8HFwO2Zig4KAybd8nK6QPwr6uVJhNiQGG9V9Nit12yhyN35zoEwy1GjXypyF0IxOw9vsQ9AkWU7tj3BSNWOw62bnjCjJGSyocTWC6xrrLew8hoYzoUq3ImEuz2jsQ-mY5C5YEAQ4LVGKa7okb0hgUuphNnLJuhUPOFCHKJsgcNw" -H "Content-Type: application/json" -d '{"role": "invalid_role"}'
+
+# 4. Test missing role parameter
+curl -X PATCH "http://localhost:8383/enterprise/x-spark-test/departments/marketing/employees/yy9prnU8sMWsjoQVaHiZSQrwKFJ2/role" -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjU3YmZiMmExMWRkZmZjMGFkMmU2ODE0YzY4NzYzYjhjNjg3NTgxZDgiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NjM1NDc2LCJ1c2VyX2lkIjoieXk5cHJuVThzTVdzam9RVmFIaVpTUXJ3S0ZKMiIsInN1YiI6Inl5OXByblU4c01Xc2pvUVZhSGlaU1Fyd0tGSjIiLCJpYXQiOjE3NTU2MzU0NzYsImV4cCI6MTc1NTYzOTA3NiwiZW1haWwiOiJoaWdlbmF3OTcyQGZ1cnNlZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZmlyZWJhc2UiOnsiaWRlbnRpdGllcyI6eyJlbWFpbCI6WyJoaWdlbmF3OTcyQGZ1cnNlZS5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.JVQK_VDWI2jwZuC-5Lvw95kVBJB0O60LoP8Gsx4SK5LYpyTByI1wfSoZwxll7s_OmxnVn4v62WWxRFGn3Kf6ieqD7O9NcEsbxpmvDsOKPuusu_GY6R0M5W81Xkglpypdz6HxAeLf53NN8BbM02qzblZFXLJhf-Y5dJV6GnusRqm8HFwO2Zig4KAybd8nK6QPwr6uVJhNiQGG9V9Nit12yhyN35zoEwy1GjXypyF0IxOw9vsQ9AkWU7tj3BSNWOw62bnjCjJGSyocTWC6xrrLew8hoYzoUq3ImEuz2jsQ-mY5C5YEAQ4LVGKa7okb0hgUuphNnLJuhUPOFCHKJsgcNw" -H "Content-Type: application/json" -d '{}'
+
+# 5. Test updating back to employee
+curl -X PATCH "http://localhost:8383/enterprise/x-spark-test/departments/marketing/employees/yy9prnU8sMWsjoQVaHiZSQrwKFJ2/role" -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjU3YmZiMmExMWRkZmZjMGFkMmU2ODE0YzY4NzYzYjhjNjg3NTgxZDgiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NjM1NDc2LCJ1c2VyX2lkIjoieXk5cHJuVThzTVdzam9RVmFIaVpTUXJ3S0ZKMiIsInN1YiI6Inl5OXByblU4c01Xc2pvUVZhSGlaU1Fyd0tGSjIiLCJpYXQiOjE3NTU2MzU0NzYsImV4cCI6MTc1NTYzOTA3NiwiZW1haWwiOiJoaWdlbmF3OTcyQGZ1cnNlZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZmlyZWJhc2UiOnsiaWRlbnRpdGllcyI6eyJlbWFpbCI6WyJoaWdlbmF3OTcyQGZ1cnNlZS5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.JVQK_VDWI2jwZuC-5Lvw95kVBJB0O60LoP8Gsx4SK5LYpyTByI1wfSoZwxll7s_OmxnVn4v62WWxRFGn3Kf6ieqD7O9NcEsbxpmvDsOKPuusu_GY6R0M5W81Xkglpypdz6HxAeLf53NN8BbM02qzblZFXLJhf-Y5dJV6GnusRqm8HFwO2Zig4KAybd8nK6QPwr6uVJhNiQGG9V9Nit12yhyN35zoEwy1GjXypyF0IxOw9vsQ9AkWU7tj3BSNWOw62bnjCjJGSyocTWC6xrrLew8hoYzoUq3ImEuz2jsQ-mY5C5YEAQ4LVGKa7okb0hgUuphNnLJuhUPOFCHKJsgcNw" -H "Content-Type: application/json" -d '{"role": "employee"}'
+
+# ========================================
+# ADMIN USER TESTS (xenacoh740@percyfx.com)
+# ========================================
+
+# 1. Test admin updating employee role to manager
+curl -X PATCH "http://localhost:8383/enterprise/x-spark-test/departments/marketing/employees/yy9prnU8sMWsjoQVaHiZSQrwKFJ2/role" -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjkyZTg4M2NjNDY2M2E2MzMyYWRhNmJjMWU0N2YzZmY1ZTRjOGI1ZDciLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NjM1NDc4LCJ1c2VyX2lkIjoiQlB4Rm1tRzZTVlh2Ynd3UkowWWpCbnVJOGU3MyIsInN1YiI6IkJQeEZtbUc2U1ZYdmJ3d1JKMFlqQm51SThlNzMiLCJpYXQiOjE3NTU2MzU0NzgsImV4cCI6MTc1NTYzOTA3OCwiZW1haWwiOiJ4ZW5hY29oNzQwQHBlcmN5ZnguY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZW1haWwiOlsieGVuYWNvaDc0MEBwZXJjeWZ4LmNvbSJdfSwic2lnbl9pbl9wcm92aWRlciI6InBhc3N3b3JkIn19.ab1ItjxbRcMNFIUK4LhHV_i2cZfSAVda0RG0IC3q8bwczCnAtfm_3-hz-S4bGMhjouOxRninU4p4oxunaS8ZReAE5vQKSDxm1WlH4WU64ioxgPPZk-a5oHgfMuGtx7mLGkYzYUT1aIyLxw6V8kY7B22IFjnFOeZIx3wfHp9TLGi4wxd-cj4JhMmnRlMbjwA8z1TLnpjMY21u5KwDs17UYViKvgTOViB0HvXvtspevvAAoTvBmV259FpUw9K55X2qqjpQSv0K7NDKCtYOJpZZEUow7Aih47B05UQtkKBYgGu05L2chii4rHgrkIt9cjvt24DpPGuMQoSPt4aI8wOytg" -H "Content-Type: application/json" -d '{"role": "manager"}'
+
+# 2. Test admin updating employee role to admin
+curl -X PATCH "http://localhost:8383/enterprise/x-spark-test/departments/marketing/employees/yy9prnU8sMWsjoQVaHiZSQrwKFJ2/role" -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjkyZTg4M2NjNDY2M2E2MzMyYWRhNmJjMWU0N2YzZmY1ZTRjOGI1ZDciLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NjM1NDc4LCJ1c2VyX2lkIjoiQlB4Rm1tRzZTVlh2Ynd3UkowWWpCbnVJOGU3MyIsInN1YiI6IkJQeEZtbUc2U1ZYdmJ3d1JKMFlqQm51SThlNzMiLCJpYXQiOjE3NTU2MzU0NzgsImV4cCI6MTc1NTYzOTA3OCwiZW1haWwiOiJ4ZW5hY29oNzQwQHBlcmN5ZnguY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZW1haWwiOlsieGVuYWNvaDc0MEBwZXJjeWZ4LmNvbSJdfSwic2lnbl9pbl9wcm92aWRlciI6InBhc3N3b3JkIn19.ab1ItjxbRcMNFIUK4LhHV_i2cZfSAVda0RG0IC3q8bwczCnAtfm_3-hz-S4bGMhjouOxRninU4p4oxunaS8ZReAE5vQKSDxm1WlH4WU64ioxgPPZk-a5oHgfMuGtx7mLGkYzYUT1aIyLxw6V8kY7B22IFjnFOeZIx3wfHp9TLGi4wxd-cj4JhMmnRlMbjwA8z1TLnpjMY21u5KwDs17UYViKvgTOViB0HvXvtspevvAAoTvBmV259FpUw9K55X2qqjpQSv0K7NDKCtYOJpZZEUow7Aih47B05UQtkKBYgGu05L2chii4rHgrkIt9cjvt24DpPGuMQoSPt4aI8wOytg" -H "Content-Type: application/json" -d '{"role": "admin"}'
+
+# 3. Test admin updating employee role to director
+curl -X PATCH "http://localhost:8383/enterprise/x-spark-test/departments/marketing/employees/yy9prnU8sMWsjoQVaHiZSQrwKFJ2/role" -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjkyZTg4M2NjNDY2M2E2MzMyYWRhNmJjMWU0N2YzZmY1ZTRjOGI1ZDciLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NjM1NDc4LCJ1c2VyX2lkIjoiQlB4Rm1tRzZTVlh2Ynd3UkowWWpCbnVJOGU3MyIsInN1YiI6IkJQeEZtbUc2U1ZYdmJ3d1JKMFlqQm51SThlNzMiLCJpYXQiOjE3NTU2MzU0NzgsImV4cCI6MTc1NTYzOTA3OCwiZW1haWwiOiJ4ZW5hY29oNzQwQHBlcmN5ZnguY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZW1haWwiOlsieGVuYWNvaDc0MEBwZXJjeWZ4LmNvbSJdfSwic2lnbl9pbl9wcm92aWRlciI6InBhc3N3b3JkIn19.ab1ItjxbRcMNFIUK4LhHV_i2cZfSAVda0RG0IC3q8bwczCnAtfm_3-hz-S4bGMhjouOxRninU4p4oxunaS8ZReAE5vQKSDxm1WlH4WU64ioxgPPZk-a5oHgfMuGtx7mLGkYzYUT1aIyLxw6V8kY7B22IFjnFOeZIx3wfHp9TLGi4wxd-cj4JhMmnRlMbjwA8z1TLnpjMY21u5KwDs17UYViKvgTOViB0HvXvtspevvAAoTvBmV259FpUw9K55X2qqjpQSv0K7NDKCtYOJpZZEUow7Aih47B05UQtkKBYgGu05L2chii4rHgrkIt9cjvt24DpPGuMQoSPt4aI8wOytg" -H "Content-Type: application/json" -d '{"role": "director"}'
+
+# 4. Test admin updating employee role back to employee
+curl -X PATCH "http://localhost:8383/enterprise/x-spark-test/departments/marketing/employees/yy9prnU8sMWsjoQVaHiZSQrwKFJ2/role" -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjkyZTg4M2NjNDY2M2E2MzMyYWRhNmJjMWU0N2YzZmY1ZTRjOGI1ZDciLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20veHNjYXJkLWFkZGQ0IiwiYXVkIjoieHNjYXJkLWFkZGQ0IiwiYXV0aF90aW1lIjoxNzU1NjM1NDc4LCJ1c2VyX2lkIjoiQlB4Rm1tRzZTVlh2Ynd3UkowWWpCbnVJOGU3MyIsInN1YiI6IkJQeEZtbUc2U1ZYdmJ3d1JKMFlqQm51SThlNzMiLCJpYXQiOjE3NTU2MzU0NzgsImV4cCI6MTc1NTYzOTA3OCwiZW1haWwiOiJ4ZW5hY29oNzQwQHBlcmN5ZnguY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZW1haWwiOlsieGVuYWNvaDc0MEBwZXJjeWZ4LmNvbSJdfSwic2lnbl9pbl9wcm92aWRlciI6InBhc3N3b3JkIn19.ab1ItjxbRcMNFIUK4LhHV_i2cZfSAVda0RG0IC3q8bwczCnAtfm_3-hz-S4bGMhjouOxRninU4p4oxunaS8ZReAE5vQKSDxm1WlH4WU64ioxgPPZk-a5oHgfMuGtx7mLGkYzYUT1aIyLxw6V8kY7B22IFjnFOeZIx3wfHp9TLGi4wxd-cj4JhMmnRlMbjwA8z1TLnpjMY21u5KwDs17UYViKvgTOViB0HvXvtspevvAAoTvBmV259FpUw9K55X2qqjpQSv0K7NDKCtYOJpZZEUow7Aih47B05UQtkKBYgGu05L2chii4rHgrkIt9cjvt24DpPGuMQoSPt4aI8wOytg" -H "Content-Type: application/json" -d '{"role": "employee"}'
+
+# ========================================
+# EXPECTED RESPONSES
+# ========================================
+
+# ✅ SUCCESS RESPONSE:
+# {
+#   "success": true,
+#   "message": "Employee role updated successfully",
+#   "data": {
+#     "employeeId": "yy9prnU8sMWsjoQVaHiZSQrwKFJ2",
+#     "oldRole": "employee",
+#     "newRole": "manager",
+#     "updatedAt": "2025-01-15T10:30:00Z",
+#     "updatedBy": "yy9prnU8sMWsjoQVaHiZSQrwKFJ2",
+#     "operationType": "self_role_change"
+#   }
+# }
+
+# ❌ ERROR RESPONSE:
+# {
+#   "success": false,
+#   "message": "Role must be one of: employee, manager, director, admin"
+# }
+
+# ========================================
+# TESTING INSTRUCTIONS
+# ========================================
+
+# 1. Make sure the server is running on port 8383
+# 2. Copy any curl command above
+# 3. Paste into your terminal/command prompt
+# 4. Press Enter to execute
+# 5. Check the response
+
+# If you get a 500 error with "logActivity is not defined":
+# - The server needs to be restarted to pick up the import fix
+# - Restart the server and try again
+
+# If you get a 404 error:
+# - Check if the server is running
+# - Verify the enterprise/department/employee exists
+# - Check if the route is properly registered
