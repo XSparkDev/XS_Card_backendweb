@@ -18,13 +18,45 @@ const port = 8383;
 const corsOptions = {
   // For production, replace with your actual frontend domains
   // origin: ['https://your-frontend-domain.com', 'https://www.your-frontend-domain.com'],
-  origin: process.env.NODE_ENV === 'production' 
-    ? process.env.ALLOWED_ORIGINS?.split(',') || ['https://your-frontend-domain.com']
-    : '*', // Allow all origins in development
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];
+    const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
+    
+    // In development, allow all origins
+    if (isDevelopment) {
+      return callback(null, true);
+    }
+    
+    // Handle wildcard (*) for production
+    if (allowedOrigins.includes('*')) {
+      return callback(null, true);
+    }
+    
+    // In production, check against allowed origins
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Log blocked origins for debugging
+    console.log(`🚫 CORS blocked origin: ${origin}`);
+    console.log(`   Allowed origins: ${allowedOrigins.join(', ')}`);
+    
+    return callback(new Error('Not allowed by CORS'));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'userid'],
   credentials: true
 };
+
+// Debug CORS configuration
+console.log('🔧 CORS Configuration:');
+console.log('  NODE_ENV:', process.env.NODE_ENV);
+console.log('  ALLOWED_ORIGINS:', process.env.ALLOWED_ORIGINS);
+console.log('  Is Development:', process.env.NODE_ENV === 'development' || !process.env.NODE_ENV);
+
 app.use(cors(corsOptions));
 
 // Import routes
